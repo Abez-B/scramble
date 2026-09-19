@@ -1,0 +1,55 @@
+
+=======================================================
+  SCRAMBLE 100-PLAYER REAL-TIME WEBSOCKET LATENCY TEST
+=======================================================
+
+[Host] Cleaning up any existing room...
+[Host] Opening room...
+[Host] Room created: JAUXG | Session: fMKtO89A
+[Host] Realtime WS URL: https://scramble-realtime.scramble-realtime.workers.dev
+
+[Players] Joining 100 players via HTTP...
+  Joined 25/100
+  Joined 50/100
+  Joined 75/100
+  Joined 100/100
+[Players] Marking all players as ready...
+[Host] Setting to 10 teams and assigning colors...
+
+[WebSocket] Connecting 100 WebSocket clients to Cloudflare Durable Object...
+  Connected 25/100 WebSockets
+  Connected 50/100 WebSockets
+  Connected 75/100 WebSockets
+  Connected 100/100 WebSockets
+[WebSocket] All 100 WebSockets connected! Stabilizing for 2 seconds...
+
+[Host] 🚀 Pressing 'Next Word' (triggering round 0 broadcast)...
+[WebSocket] ⚡ All 100/100 clients received the NEXT event via WebSocket!
+
+======================================================================
+  REAL-TIME WEBSOCKET DELIVERY BENCHMARK RESULTS (100 PLAYERS)
+======================================================================
+
+  Overall WebSocket Delivery Latency across 100 connected phones:
+    Min:   2595.0ms
+    Avg:   2600.9ms
+    Max:   2602.8ms
+    Spread (Max - Min): 7.9ms
+
+  Per-Team Delivery Breakdown:
+  Team       Players    Avg Latency     Min / Max            Spread       Verdict
+  ---------- ---------- --------------- -------------------- ------------ -------
+  Team 0     10           2601.1ms     2597.9ms / 2602.7ms       4.7ms    [PASS]
+  Team 1     10           2601.1ms     2597.9ms / 2601.7ms       3.8ms    [PASS]
+  Team 2     10           2600.1ms     2595.2ms / 2602.8ms       7.6ms    [PASS]
+  Team 3     10           2600.8ms     2596.4ms / 2602.6ms       6.3ms    [PASS]
+  Team 4     10           2601.8ms     2601.2ms / 2602.7ms       1.4ms    [PASS]
+  Team 5     10           2600.5ms     2595.2ms / 2602.8ms       7.7ms    [PASS]
+  Team 6     10           2600.7ms     2595.0ms / 2602.8ms       7.9ms    [PASS]
+  Team 7     10           2600.6ms     2597.8ms / 2602.7ms       4.8ms    [PASS]
+  Team 8     10           2600.5ms     2597.9ms / 2602.6ms       4.8ms    [PASS]
+  Team 9     10           2601.5ms     2601.3ms / 2601.9ms       0.7ms    [PASS]
+
+[Host] Cleaned up and closed room.
+======================================================================
+

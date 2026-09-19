@@ -187,6 +187,7 @@ const show=id=>{["s-setup","s-gate","s-dash"].forEach(s=>$(s).classList.toggle("
 
 let pin=localStorage.getItem("scramble_host_pin")||"";
 let hs=null,k=2,kTouched=false,ansDirty=false,pollTimer=null,lastETag=null;
+let wsUrl=null,ws=null,wsRetries=0,wsConnected=false;
 
 $("logodots").innerHTML=["#FF3B30","#0A84FF","#2ECC71","#FFD60A"].map(c=>`<span style="background:${c}"></span>`).join("");
 
@@ -233,23 +234,94 @@ async function unlock(){
   $("jcode").textContent=hs.join_code;
   $("jurl").textContent=hs.join_url;
   $("ans").value=hs.answers.join("\n");ansDirty=false;
-  renderAll();startPoll();
+  renderAll();
+  // Connect via WS if available, otherwise poll
+  console.log('[HOST] unlock() complete. phase='+hs.phase+' session_id='+hs.session_id+' ws_url='+hs.ws_url);
+  if(hs.ws_url){wsUrl=hs.ws_url;console.log('[HOST] ws_url found, calling connectHostWS()');connectHostWS();}
+  else{console.warn('[HOST] No ws_url — starting poll fallback');startPoll();}
 }
 
-function startPoll(){stopPoll();pollTimer=setInterval(refresh,1000);}
-function stopPoll(){if(pollTimer)clearInterval(pollTimer);pollTimer=null;}
+/* ── Polling fallback ── */
+function startPoll(){
+  console.log('[HOST] startPoll() — polling every 2s');
+  stopPoll();pollTimer=setInterval(refresh,2000);
+}
+function stopPoll(){
+  if(pollTimer){console.log('[HOST] stopPoll() — cleared poll timer');clearInterval(pollTimer);pollTimer=null;}
+}
 
 async function refresh(){
+  console.log('[HOST] refresh() called — wsConnected='+wsConnected+' polling='+(pollTimer!=null));
   try{
     const headers={"X-Host-Pin":pin};
     if(lastETag)headers["If-None-Match"]=lastETag;
     const r=await fetch("/api/host/state",{headers});
-    if(r.status===304)return; // nothing changed
+    console.log('[HOST] /api/host/state status='+r.status+' etag='+r.headers.get('etag'));
+    if(r.status===304){console.log('[HOST] 304 Not Modified — no change, skipping render');return;}
     lastETag=r.headers.get("etag")||null;
-    if(!r.ok)return;
+    if(!r.ok){console.error('[HOST] /api/host/state error status='+r.status);return;}
     hs=await r.json();
-  }catch(e){return;}
+    console.log('[HOST] state fetched — phase='+hs.phase+' round='+hs.current_round);
+    // Pick up ws_url if it appears
+    if(hs.ws_url&&!wsUrl){wsUrl=hs.ws_url;console.log('[HOST] ws_url appeared in state, connecting WS');connectHostWS();}
+  }catch(e){console.error('[HOST] refresh() fetch error:',e);return;}
   renderAll();
+}
+
+/* ── Host WebSocket ── */
+function connectHostWS(){
+  if(!wsUrl||ws||!hs){
+    console.warn('[HOST] connectHostWS() skipped — wsUrl='+wsUrl+' ws='+!!ws+' hs='+!!hs);
+    return;
+  }
+  const proto=wsUrl.replace(/^http/,"ws");
+  const url=`${proto}/ws/${hs.session_id}?pid=host&role=host`;
+  console.log('[HOST] Attempting WebSocket connect →', url);
+  try{ws=new WebSocket(url);}catch(e){
+    console.error('[HOST] WebSocket constructor threw:', e);
+    hostWsFallback();return;
+  }
+
+  ws.onopen=()=>{
+    console.log('[HOST] ✅ WebSocket OPEN — wsRetries reset, stopping poll');
+    wsRetries=0;wsConnected=true;
+    stopPoll(); // WS is live
+  };
+
+  ws.onmessage=(ev)=>{
+    let data;
+    try{data=JSON.parse(ev.data);}catch(e){console.warn('[HOST] WS msg parse error:',e);return;}
+    console.log('[HOST] 📨 WS message received — type='+data.type+' seq='+data.sequence+' executeAt='+data.executeAt);
+    // Any event from WS → refresh full host state
+    refresh();
+  };
+
+  ws.onclose=(ev)=>{
+    console.warn('[HOST] ⚠️ WebSocket CLOSED — code='+ev.code+' reason='+ev.reason+' clean='+ev.wasClean);
+    ws=null;wsConnected=false;hostWsReconnect();
+  };
+  ws.onerror=(ev)=>{
+    console.error('[HOST] ❌ WebSocket ERROR:', ev);
+    ws=null;wsConnected=false;hostWsReconnect();
+  };
+}
+
+function hostWsReconnect(){
+  wsRetries++;
+  const delay=Math.min(1000*Math.pow(1.5,wsRetries-1),10000);
+  console.log('[HOST] hostWsReconnect() attempt #'+wsRetries+' in '+delay+'ms');
+  if(wsRetries>=5){hostWsFallback();return;}
+  setTimeout(connectHostWS,delay);
+}
+
+function hostWsFallback(){
+  wsRetries=0;
+  console.warn('[HOST] 🔄 WS unavailable after 5 retries — falling back to polling');
+  startPoll();
+  setTimeout(()=>{if(!wsConnected&&wsUrl){
+    console.log('[HOST] Retrying WS after 30s fallback...');
+    connectHostWS();
+  }},30000);
 }
 
 function renderAll(){
@@ -363,9 +435,17 @@ $("b-saveans").onclick=async()=>{
 };
 
 async function roundAction(action){
+  console.log('[HOST] roundAction("'+action+'") — calling /api/host/round');
   err("e-round");
-  try{await api("/api/host/round",{method:"POST",body:JSON.stringify({action})});await refresh();}
-  catch(e){err("e-round",e.message);}
+  try{
+    const r=await api("/api/host/round",{method:"POST",body:JSON.stringify({action})});
+    console.log('[HOST] roundAction success:', r);
+    await refresh();
+  }
+  catch(e){
+    console.error('[HOST] roundAction error:',e);
+    err("e-round",e.message);
+  }
 }
 async function pushSettings(){
   try{await api("/api/host/settings",{method:"POST",
@@ -388,6 +468,7 @@ $("b-lobby").onclick=async()=>{
 $("b-close").onclick=async()=>{
   if(!confirm("Close the room and delete everything?"))return;
   try{await api("/api/close",{method:"POST",body:"{}"});stopPoll();
+    if(ws){try{ws.close();}catch(e){}}ws=null;wsConnected=false;wsUrl=null;
     pin="";localStorage.removeItem("scramble_host_pin");show("s-setup");}
   catch(e){err("e-dash",e.message);}
 };

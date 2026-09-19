@@ -144,36 +144,188 @@ let name=localStorage.getItem("scramble_name")||"";
 /* ---------------- ui state (render is otherwise pure) --------------- */
 let joined=false, info=false, lastRound=null, lastRejoin=0, readyBusy=false, lastState=null;
 
-/* ---------------- resilient poll loop: memory is the truth ----------- */
-let fails=0, pollTimer=null, lastETag=null;
-const BASE_IV=()=>1000+Math.random()*1000;
+/* ──────────── real-time WebSocket + fallback polling ──────────── */
+let wsUrl=null, ws=null, wsRetries=0, wsFails=0, wsConnected=false;
+let lastSequence=0, serverTimeOffset=0;
+let fails=0, pollTimer=null, lastETag=null, pollActive=false;
 
-function schedule(ms){clearTimeout(pollTimer);pollTimer=setTimeout(tick,ms);}
-
-async function tick(){
-  let st;
+/* Fetch full state from HTTP (initial load + recovery) */
+async function fetchState(){
   try{
     const headers={};
     if(lastETag)headers["If-None-Match"]=lastETag;
     const r=await fetch("/api/state?pid="+encodeURIComponent(pid),{headers});
-    if(r.status===304){
-      // Nothing changed — skip render, save bandwidth
-      fails=0;$("reconnect").classList.remove("show");
-      return schedule(BASE_IV());
-    }
+    console.log('[PLAYER] fetchState status='+r.status+' etag='+r.headers.get('etag'));
+    if(r.status===304){fails=0;$("reconnect").classList.remove("show");return null;}
     lastETag=r.headers.get("etag")||null;
-    st=await r.json();
+    const st=await r.json();
     lastState=st;
     fails=0;$("reconnect").classList.remove("show");
+    // Capture ws_url from server response
+    if(st.ws_url && !wsUrl){
+      console.log('[PLAYER] ws_url received from server:',st.ws_url,'session_id:',st.session_id);
+      wsUrl=st.ws_url;connectWS();
+    }
+    return st;
   }catch(e){
+    console.error('[PLAYER] fetchState error:',e);
     fails++;$("reconnect").classList.add("show");
-    return schedule(Math.min(BASE_IV()*Math.pow(1.6,fails),15000));
+    return null;
   }
-  try{render(st);}catch(e){console.error(e);}
-  schedule(BASE_IV());
 }
-document.addEventListener("visibilitychange",()=>{if(!document.hidden)tick();});
-window.addEventListener("online",()=>tick());
+
+/* ── Polling fallback (only active when WS is unavailable) ── */
+const BASE_IV=()=>2000+Math.random()*2000;
+function schedulePoll(ms){clearTimeout(pollTimer);if(pollActive)pollTimer=setTimeout(pollTick,ms);}
+async function pollTick(){
+  console.log('[PLAYER] pollTick() — wsConnected='+wsConnected);
+  const st=await fetchState();
+  if(st)try{render(st);}catch(e){console.error('[PLAYER] render() error:',e);}
+  schedulePoll(fails?Math.min(BASE_IV()*Math.pow(1.6,fails),15000):BASE_IV());
+}
+function startPolling(){if(!pollActive){console.log('[PLAYER] startPolling()');pollActive=true;pollTick();}}
+function stopPolling(){console.log('[PLAYER] stopPolling()');pollActive=false;clearTimeout(pollTimer);}
+
+/* ── WebSocket connection manager ── */
+function connectWS(){
+  if(!wsUrl||ws){
+    console.warn('[PLAYER] connectWS() skipped — wsUrl='+wsUrl+' ws='+!!ws);
+    return;
+  }
+  const room=lastState;
+  if(!room||!room.session_id){
+    console.warn('[PLAYER] connectWS() skipped — no session_id in lastState', room);
+    return;
+  }
+
+  const proto=wsUrl.replace(/^http/,"ws");
+  const url=`${proto}/ws/${room.session_id}?pid=${encodeURIComponent(pid)}&role=player`;
+  console.log('[PLAYER] Attempting WebSocket connect →', url);
+
+  try{ws=new WebSocket(url);}catch(e){console.error('[PLAYER] WebSocket constructor threw:',e);wsFallback();return;}
+
+  ws.onopen=()=>{
+    console.log('[PLAYER] ✅ WebSocket OPEN — stopping poll');
+    wsRetries=0;wsFails=0;wsConnected=true;
+    $("reconnect").classList.remove("show");
+    stopPolling(); // WS is live — stop polling
+    // Clock sync: send PING immediately
+    ws.send(JSON.stringify({type:"PING",clientTime:Date.now()}));
+    // If reconnecting, send RESUME
+    if(lastSequence>0){
+      console.log('[PLAYER] Sending RESUME with lastSequence='+lastSequence);
+      ws.send(JSON.stringify({type:"RESUME",lastSequence}));
+    }
+  };
+
+  ws.onmessage=(ev)=>{
+    let data;try{data=JSON.parse(ev.data);}catch{return;}
+    console.log('[PLAYER] 📨 WS message — type='+data.type+' seq='+data.sequence+' executeAt='+data.executeAt);
+    switch(data.type){
+      case "CONNECTED":
+        if(data.sequence)lastSequence=Math.max(lastSequence,data.sequence);
+        if(data.serverTime)serverTimeOffset=data.serverTime-Date.now();
+        console.log('[PLAYER] CONNECTED — serverTimeOffset='+serverTimeOffset+'ms seq='+lastSequence);
+        break;
+      case "PONG":
+        if(data.serverTime&&data.clientTime){
+          const rtt=Date.now()-data.clientTime;
+          serverTimeOffset=data.serverTime-(data.clientTime+rtt/2);
+          console.log('[PLAYER] PONG — rtt='+rtt+'ms serverTimeOffset='+serverTimeOffset+'ms');
+        }
+        break;
+      case "STATE_SYNC":
+      case "CAUGHT_UP":
+        if(data.sequence)lastSequence=data.sequence;
+        console.log('[PLAYER] '+data.type+' — triggering refreshFromHTTP()');
+        refreshFromHTTP();
+        break;
+      default:
+        // Game event: NEXT, BACK, REDEAL, GAME_START, GAME_END, etc.
+        if(data.sequence)lastSequence=data.sequence;
+        console.log('[PLAYER] Game event → handleRealtimeEvent(), type='+data.type);
+        handleRealtimeEvent(data);
+        break;
+    }
+  };
+
+  ws.onclose=(ev)=>{
+    console.warn('[PLAYER] ⚠️ WebSocket CLOSED — code='+ev.code+' reason='+ev.reason+' clean='+ev.wasClean);
+    wsCleanup();wsReconnect();
+  };
+  ws.onerror=(ev)=>{
+    console.error('[PLAYER] ❌ WebSocket ERROR:', ev);
+    wsCleanup();wsReconnect();
+  };
+}
+
+function wsCleanup(){console.log('[PLAYER] wsCleanup()');ws=null;wsConnected=false;}
+
+function wsReconnect(){
+  wsRetries++;
+  const delay=Math.min(1000*Math.pow(1.5,wsRetries-1),10000);
+  console.log('[PLAYER] wsReconnect() attempt #'+wsRetries+' in '+delay+'ms');
+  if(wsRetries>=5){wsFallback();return;}
+  $("reconnect").classList.add("show");
+  setTimeout(connectWS,delay);
+}
+
+function wsFallback(){
+  // WS failed too many times — fall back to polling
+  wsFails++;wsRetries=0;
+  console.warn('[PLAYER] 🔄 WS unavailable after 5 retries — falling back to polling');
+  startPolling();
+  // Retry WS in 30 seconds
+  setTimeout(()=>{if(!wsConnected&&wsUrl){
+    console.log('[PLAYER] Retrying WS after 30s fallback...');
+    connectWS();
+  }},30000);
+}
+
+/* Handle a real-time event from the WebSocket */
+function handleRealtimeEvent(ev){
+  const syncEvents=new Set(["NEXT","BACK","REDEAL","GAME_START","GAME_END"]);
+
+  if(syncEvents.has(ev.type) && ev.executeAt){
+    // Synchronized transition: schedule at executeAt
+    const now=Date.now()+serverTimeOffset; // adjusted server time
+    const delay=ev.executeAt-now;
+    console.log('[PLAYER] Sync event type='+ev.type+' executeAt='+ev.executeAt+' now='+now+' delay='+delay+'ms');
+    if(delay>0){
+      setTimeout(()=>{console.log('[PLAYER] Executing delayed refresh for '+ev.type);refreshFromHTTP();},delay);
+    }else{
+      console.log('[PLAYER] Late arrival (delay='+delay+'ms) — refreshing immediately for '+ev.type);
+      refreshFromHTTP();
+    }
+  }else{
+    console.log('[PLAYER] Non-sync event type='+ev.type+' — refreshing immediately');
+    refreshFromHTTP();
+  }
+}
+
+/* Fetch fresh state from HTTP and re-render */
+async function refreshFromHTTP(){
+  console.log('[PLAYER] refreshFromHTTP() called');
+  const st=await fetchState();
+  if(st)try{render(st);}catch(e){console.error('[PLAYER] render() error:',e);}
+}
+
+/* Visibility & online handlers */
+document.addEventListener("visibilitychange",()=>{
+  if(!document.hidden){
+    if(wsConnected&&ws&&ws.readyState===1){
+      ws.send(JSON.stringify({type:"PING",clientTime:Date.now()}));
+      refreshFromHTTP();
+    }else if(!wsConnected){
+      if(wsUrl)connectWS();
+      else refreshFromHTTP();
+    }
+  }
+});
+window.addEventListener("online",()=>{
+  if(wsUrl&&!wsConnected)connectWS();
+  else refreshFromHTTP();
+});
 
 /* ------------------------------ render ------------------------------ */
 function render(st){
@@ -337,7 +489,7 @@ $("b-name").onclick=async()=>{
       if(r.status===403){showSection("s-code");err("e-code",d.detail||"Wrong room code.");return;}
       return err("e-name",d.detail||"Couldn't join — try again.");
     }
-    joined=true;tick();
+    joined=true;refreshFromHTTP();
   }catch(e){err("e-name","Network hiccup — try again.");}
   finally{$("b-name").disabled=false;}
 };
@@ -352,18 +504,18 @@ $("b-ready").onclick=async()=>{
   const on=!$("b-ready").classList.contains("on");
   try{await fetch("/api/ready",{method:"POST",headers:{"Content-Type":"application/json"},
     body:JSON.stringify({code,pid,ready:on})});}catch(e){}
-  readyBusy=false;tick();
+  readyBusy=false;refreshFromHTTP();
 };
 
 $("stage").onclick=()=>{info=!info;if(lastState)render(lastState);};
 
-/* ------------------------------- boot ------------------------------- */
 function boot(){
   $("code").value=code;$("name").value=name;
   if(!code){showSection("s-code");}
   else if(!name){showSection("s-name");}
   else{showSection("s-name");} // render() takes over as soon as state says we're in
-  tick();
+  // Start with polling; switches to WS once ws_url is received
+  startPolling();
 }
 boot();
 </script>

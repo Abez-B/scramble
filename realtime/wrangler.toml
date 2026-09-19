@@ -1,0 +1,17 @@
+name = "scramble-realtime"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+account_id = "b276fdfe152ced229256d718d6793b73"
+
+[durable_objects]
+bindings = [
+  { name = "GAME_ROOM", class_name = "GameRoom" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["GameRoom"]
+
+[vars]
+LEAD_TIME_MS = "1000"
+# NOTIFY_SECRET and BACKEND_URL set via `wrangler secret put` or dashboard

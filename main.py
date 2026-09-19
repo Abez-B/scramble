@@ -30,6 +30,7 @@ Architecture:
   (Redis, etc.) — unnecessary at this scale.
 """
 
+import asyncio
 import hashlib
 import hmac
 import os
@@ -54,6 +55,8 @@ except ImportError:
 
 from concurrent.futures import ProcessPoolExecutor
 
+import httpx
+
 from db import Store
 from game import (
     ANSWER_MAX,
@@ -71,22 +74,15 @@ from game import (
 app = FastAPI(title="Scramble", docs_url=None, redoc_url=None)
 app.add_middleware(GZipMiddleware, minimum_size=200)
 
+# ─────────────────────────────────── real-time notification config
+_RT_URL = os.getenv("REALTIME_WORKER_URL", "").rstrip("/")
+_RT_SECRET = os.getenv("NOTIFY_SECRET", "")
+_rt_client: httpx.AsyncClient | None = None
+
 store = Store()
 
-def _db_worker_init():
-    global _worker_store
-    from db import Store
-    _worker_store = Store()
-    _worker_store.connect()
-
-def _db_worker_task(fn_name, *args):
-    try:
-        getattr(_worker_store, fn_name)(*args)
-    except Exception as e:
-        print(f"[worker] DB error on {fn_name}: {e}")
-
-# Background process pool for DB writes — never blocks the FastAPI GIL
-_db_pool = ProcessPoolExecutor(max_workers=1, initializer=_db_worker_init)
+# Background thread pool for DB writes — never blocks the FastAPI event loop
+_db_pool = ThreadPoolExecutor(max_workers=1)
 
 _TEMPLATES = Path(__file__).parent / "templates"
 INDEX_HTML = (_TEMPLATES / "index.html").read_text(encoding="utf-8")
@@ -130,12 +126,42 @@ def _bump():
 
 
 def _persist(fn, *args):
-    """Fire-and-forget DB write. Runs in a background process, never blocks
+    """Fire-and-forget DB write. Runs in a background thread, never blocks
     the event loop or any request handler."""
     try:
-        _db_pool.submit(_db_worker_task, fn.__name__, *args)
+        _db_pool.submit(fn, *args)
     except Exception as e:
         print(f"[persist] submit error: {e}")
+
+
+def _notify(event_type: str, **data):
+    """Fire-and-forget real-time notification to the Cloudflare Worker.
+    Non-blocking: schedules an async task that POSTs a tiny event to the
+    Worker's /notify/:gameId endpoint. If the Worker is down or not
+    configured, this is silently ignored — clients fall back to polling."""
+    if not _RT_URL or not _rt_client:
+        return
+    room = _mem["room"]
+    if not room:
+        return
+    game_id = room["session_id"]
+    payload = {"type": event_type, **data}
+
+    async def _send():
+        try:
+            await _rt_client.post(
+                f"{_RT_URL}/notify/{game_id}",
+                json=payload,
+                headers={"Authorization": f"Bearer {_RT_SECRET}"},
+                timeout=5.0,
+            )
+        except Exception as e:
+            print(f"[realtime] notify error ({event_type}): {e}")
+
+    try:
+        asyncio.get_event_loop().create_task(_send())
+    except RuntimeError:
+        pass  # no event loop — shouldn't happen in FastAPI but be safe
 
 
 def _find_player(pid: str):
@@ -170,6 +196,7 @@ def _etag_response(request: Request, data: dict, extra_headers: dict | None = No
 @app.on_event("startup")
 async def _startup():
     """Hydrate in-memory state from DB once at boot."""
+    global _rt_client
     store.connect()
     room, players, answers, rounds = store.load_all()
     _mem["room"] = room
@@ -177,8 +204,19 @@ async def _startup():
     _mem["answers"] = answers
     _mem["rounds"] = rounds
     _mem["version"] = 0
+    if _RT_URL:
+        _rt_client = httpx.AsyncClient()
+        print(f"[startup] Real-time enabled: {_RT_URL}")
     print(f"[startup] Loaded: room={'yes' if room else 'no'}, "
           f"players={len(players)}, answers={len(answers)}, rounds={len(rounds)}")
+
+
+@app.on_event("shutdown")
+async def _shutdown():
+    global _rt_client
+    if _rt_client:
+        await _rt_client.aclose()
+        _rt_client = None
 
 
 # ─────────────────────────────────────────── rate limiter (venue-safe)
@@ -290,7 +328,8 @@ async def open_room(body: OpenRoomBody, request: Request):
     if answers:
         _persist(store.replace_answers, session_id, answers)
 
-    return {"ok": True, "join_code": join_code, "join_url": _join_url(request, _mem["room"])}
+    return {"ok": True, "join_code": join_code, "join_url": _join_url(request, _mem["room"]),
+            "ws_url": _RT_URL}
 
 
 @app.get("/api/state")
@@ -320,6 +359,7 @@ async def state(pid: str = "", request: Request = None):
         "total_rounds": len(_mem["answers"]),
         "counts": {"players": len(players), "ready": sum(1 for p in players if p["ready"])},
         "you": None,
+        "ws_url": _RT_URL or None,
     }
     if not me:
         return _etag_response(request, out) if request else JSONResponse(out)
@@ -399,6 +439,7 @@ async def join(body: JoinBody, request: Request):
 
     _bump()
     _persist(store.upsert_player, room["session_id"], pid, name, ts)
+    _notify("PLAYER_JOINED", pid=pid, name=name)
 
     return {"ok": True, "pid": pid, "session_id": room["session_id"]}
 
@@ -416,6 +457,7 @@ async def ready(body: ReadyBody):
     player["ready"] = body.ready
     _bump()
     _persist(store.set_ready, room["session_id"], pid, body.ready)
+    _notify("PLAYER_READY", pid=pid, ready=body.ready)
 
     return {"ok": True}
 
@@ -462,6 +504,7 @@ async def host_state(request: Request, x_host_pin: str | None = Header(default=N
         "palette": PALETTE,
         "max_teams": MAX_TEAMS,
         "answer_max": ANSWER_MAX,
+        "ws_url": _RT_URL or None,
     }
     return JSONResponse(out, headers={"ETag": etag, "Cache-Control": "no-cache"})
 
@@ -480,6 +523,7 @@ async def set_answers(body: AnswersBody, x_host_pin: str | None = Header(default
     _bump()
 
     _persist(store.replace_answers, room["session_id"], answers)
+    _notify("ANSWERS_CHANGED", count=len(answers))
 
     return {"ok": True, "count": len(answers)}
 
@@ -536,6 +580,7 @@ async def set_teams(body: TeamsBody, x_host_pin: str | None = Header(default=Non
 
     _bump()
     _persist(store.set_team_count, body.team_count)
+    _notify("TEAMS_CHANGED", team_count=body.team_count)
 
     return {"ok": True}
 
@@ -551,6 +596,7 @@ async def set_settings(body: SettingsBody, x_host_pin: str | None = Header(defau
     room["allow_flips"] = body.allow_flips
     _bump()
     _persist(store.set_settings, body.edge_marks, body.allow_flips)
+    _notify("SETTINGS_CHANGED")
 
     return {"ok": True}
 
@@ -580,6 +626,7 @@ async def assign_colors(x_host_pin: str | None = Header(default=None)):
         _persist(store.set_color, room["session_id"], pid, ci)
     _persist(store.set_phase, "live")
     _persist(store.set_current_round, -1)
+    _notify("GAME_START")
 
     return {"ok": True}
 
@@ -604,9 +651,13 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
             _persist(store.save_round, room["session_id"], nxt, snap, snap["made_at"])
         room["current_round"] = nxt
         _persist(store.set_current_round, nxt)
+        _bump()
+        _notify("NEXT", round=nxt)
     elif body.action == "back":
         room["current_round"] = max(-1, cur - 1)
         _persist(store.set_current_round, room["current_round"])
+        _bump()
+        _notify("BACK", round=room["current_round"])
     elif body.action == "redeal":
         if cur < 0:
             raise HTTPException(400, "No active round to re-deal.")
@@ -614,10 +665,11 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
                              room["edge_marks"], room["allow_flips"])
         _mem["rounds"][cur] = snap
         _persist(store.save_round, room["session_id"], cur, snap, snap["made_at"])
+        _bump()
+        _notify("REDEAL", round=cur)
     else:
         raise HTTPException(400, "Unknown action.")
 
-    _bump()
     return {"ok": True}
 
 
@@ -635,6 +687,7 @@ async def back_to_lobby(x_host_pin: str | None = Header(default=None)):
     _bump()
 
     _persist(store.reset_to_lobby)
+    _notify("GAME_END")
 
     return {"ok": True}
 
@@ -652,6 +705,7 @@ async def kick_player(body: KickBody, x_host_pin: str | None = Header(default=No
         _mem["kicked_pids"].add(body.pid)
         _bump()
         _persist(store.remove_player, room["session_id"], body.pid)
+        _notify("PLAYER_KICKED", pid=body.pid)
 
     return {"ok": True}
 
@@ -660,6 +714,8 @@ async def kick_player(body: KickBody, x_host_pin: str | None = Header(default=No
 async def close_room(x_host_pin: str | None = Header(default=None)):
     room = _require_room()
     _require_host(x_host_pin, room)
+
+    _notify("ROOM_CLOSED")
 
     _mem["room"] = None
     _mem["players"] = []

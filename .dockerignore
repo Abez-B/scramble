@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+realtime/node_modules/
+realtime/.wrangler/
+scramble.db

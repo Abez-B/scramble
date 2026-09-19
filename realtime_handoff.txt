@@ -1,0 +1,700 @@
+Real-Time Game Synchronization — Architecture Change Handoff
+Objective
+
+Replace the current database polling mechanism used by game clients with a persistent WebSocket-based real-time communication layer.
+
+The existing Turso database remains the source of truth.
+
+The new Cloudflare Durable Object becomes the real-time coordination/broadcast layer for each game.
+
+The goal is:
+
+When the Game Master presses "Next", all connected phones should transition to the next state at approximately the same time, even when some phones have slow/unstable internet.
+
+Do NOT migrate the application database to Firebase or replace Turso.
+
+Target Architecture
+                         ┌─────────────────────┐
+                         │       Turso         │
+                         │                     │
+                         │ Persistent state    │
+                         │ Source of truth     │
+                         └──────────┬──────────┘
+                                    │
+                                    │ HTTP/API
+                                    │
+                         ┌──────────▼──────────┐
+                         │ Existing Backend    │
+                         │                     │
+                         │ Game logic          │
+                         │ Authentication      │
+                         │ Validation          │
+                         └──────────┬──────────┘
+                                    │
+                                    │
+                         ┌──────────▼──────────┐
+                         │ Cloudflare Worker   │
+                         │ + Durable Objects   │
+                         └──────────┬──────────┘
+                                    │
+                              Game Room DO
+                                    │
+                    ┌───────────────┼───────────────┐
+                    │               │               │
+                  WebSocket      WebSocket       WebSocket
+                    │               │               │
+                   📱              📱              📱
+                Player 1        Player 2        Player N
+
+There should be one Durable Object per active game/room.
+
+Example:
+
+gameId = ABC123
+
+ABC123 → DurableObject(ABC123)
+
+The Durable Object maintains the WebSocket connections for that game.
+
+Responsibilities
+Turso
+
+Continue using Turso for:
+
+game data
+players
+teams
+assigned letters/words
+current persisted game state
+rounds
+scores
+game configuration
+results
+anything that needs to survive server restart/reconnection
+
+Turso remains the authoritative source of truth.
+
+Do not use the Durable Object as the permanent database.
+
+Durable Object
+
+Use the Durable Object for:
+
+maintaining WebSocket connections
+knowing which players are currently connected
+broadcasting real-time events
+sequencing events
+coordinating synchronized transitions
+tracking the latest event sequence number
+optionally keeping small ephemeral game state in memory
+
+Do not store the entire application database inside the Durable Object.
+
+Client Connection
+
+When a player enters a game:
+
+Client
+  │
+  ├── normal HTTP request → load initial game state
+  │
+  └── WebSocket → connect to GameRoom(gameId)
+
+The HTTP request gives the client its initial state.
+
+The WebSocket is then used for subsequent real-time updates.
+
+Example:
+
+GET /api/game/ABC123/state
+
+↓
+
+{
+  "gameId": "ABC123",
+  "round": 10,
+  "team": 2,
+  ...
+}
+
+Then establish:
+
+wss://.../game/ABC123
+Important: Stop Polling
+
+Once the WebSocket is connected, the client should NOT continue polling the database for normal game-state changes.
+
+Remove/disable polling for events that are now delivered through WebSockets.
+
+HTTP should remain available for:
+
+initial load
+reconnect/recovery
+explicit state refresh
+non-real-time operations
+Event Protocol
+
+Do not broadcast large game responses.
+
+Real-time messages should be extremely small.
+
+Example:
+
+{
+  "type": "NEXT",
+  "sequence": 104,
+  "round": 42,
+  "executeAt": 1786874635120
+}
+
+Other events can follow the same structure:
+
+{
+  "type": "GAME_START",
+  "sequence": 105,
+  "executeAt": 1786874637120
+}
+{
+  "type": "GAME_PAUSE",
+  "sequence": 106
+}
+{
+  "type": "GAME_END",
+  "sequence": 107
+}
+
+Keep these payloads tiny.
+
+Do not send the entire database/game object for every event.
+
+Sequence Numbers
+
+Every real-time event must have a monotonically increasing sequence number.
+
+Example:
+
+101 → GAME_START
+102 → NEXT
+103 → NEXT
+104 → PAUSE
+105 → NEXT
+
+The client should maintain:
+
+lastSequence = 103
+
+If it reconnects and says:
+
+lastSequence = 103
+
+the server can determine whether the client missed events.
+
+At minimum, the server must be able to return the current authoritative game state.
+
+Synchronization
+
+For events where all phones should visually transition together, do NOT tell clients:
+
+"Change immediately."
+
+Instead send:
+
+{
+  "type": "NEXT",
+  "sequence": 104,
+  "round": 42,
+  "executeAt": 1786874635120
+}
+
+executeAt is a server timestamp in milliseconds.
+
+Example:
+
+Server sends event:
+
+executeAt = now + 1000ms
+
+Clients receive it at slightly different times:
+
+Phone A → receives at +40ms
+Phone B → receives at +80ms
+Phone C → receives at +150ms
+Phone D → receives at +400ms
+
+But they all execute the transition at:
+
+executeAt
+
+This makes the visual transition much more synchronized.
+
+Start with approximately:
+
+500–1500ms
+
+of lead time.
+
+Make this configurable.
+
+Do not hard-code 2 seconds unless testing shows it is necessary.
+
+Server Time
+
+Client clocks cannot be trusted.
+
+The client should use server time when determining executeAt.
+
+Implement a lightweight mechanism to estimate:
+
+serverTime - clientTime
+
+The client can then calculate:
+
+adjustedServerTime = localTime + serverTimeOffset
+
+and execute when:
+
+adjustedServerTime >= executeAt
+
+This is important for synchronization between different phones.
+
+Handling Slow Internet
+
+This is a critical requirement.
+
+A slow phone may receive:
+
+NEXT
+sequence=104
+executeAt=1234567890
+
+after executeAt.
+
+The client must NOT simply execute an outdated timer.
+
+Instead:
+
+Receive the event.
+Check executeAt.
+If the execution time has not passed, schedule the transition.
+If the execution time has already passed, immediately move to the specified state.
+The round/state in the event tells the client what the current state should be.
+
+Example:
+
+Fast phone:
+
+receive NEXT
+       ↓
+wait until executeAt
+       ↓
+show round 42
+
+Slow phone:
+
+receive NEXT late
+       ↓
+executeAt already passed
+       ↓
+immediately show round 42
+
+This prevents a slow connection from leaving the user stuck on an old round.
+
+Reconnection
+
+WebSocket connections will occasionally disappear.
+
+This is normal.
+
+Implement automatic reconnection on the client.
+
+Recommended approach:
+
+WebSocket disconnected
+        ↓
+wait 1 second
+        ↓
+reconnect
+        ↓
+send gameId + lastSequence
+
+Example:
+
+{
+  "type": "RESUME",
+  "gameId": "ABC123",
+  "lastSequence": 103
+}
+
+The server should respond with either:
+
+Option A — missed events are available
+EVENT 104
+EVENT 105
+Option B — client is too far behind
+
+Return the authoritative current state:
+
+{
+  "type": "STATE_SYNC",
+  "sequence": 105,
+  "state": {
+    ...
+  }
+}
+
+For the first implementation, Option B is acceptable and simpler.
+
+The important requirement is:
+
+A disconnected phone must be able to recover without requiring the user to refresh the page.
+
+Game Master Flow
+
+When the Game Master presses NEXT:
+
+Game Master
+    │
+    │ POST /game/next
+    ▼
+Existing Backend
+    │
+    ├── validate request
+    │
+    ├── update Turso
+    │
+    └── notify GameRoom Durable Object
+                         │
+                         ▼
+                  broadcast NEXT
+                         │
+          ┌──────────────┼──────────────┐
+          ▼              ▼              ▼
+       Phone 1        Phone 2        Phone 50
+
+Important:
+
+The database update should happen through the existing application/game logic.
+
+Do not allow the client to directly manipulate authoritative game state through the Durable Object.
+
+Broadcast Payload
+
+For example:
+
+{
+  "type": "NEXT",
+  "sequence": 104,
+  "round": 42,
+  "executeAt": 1786874635120
+}
+
+The Durable Object broadcasts this same tiny message to all connected clients in the game.
+
+Do not create 50 database queries.
+
+Do not fetch the full game state 50 times.
+
+The Durable Object should effectively do:
+
+event
+  ↓
+broadcast to all WebSockets
+Initial Load
+
+When a phone first joins:
+
+1. HTTP → fetch current game state
+2. WebSocket → connect
+3. WebSocket → identify/resume
+
+There is a potential race condition between steps 1 and 2.
+
+Make sure the implementation cannot result in the client missing an event between the initial HTTP state load and WebSocket connection.
+
+One simple approach:
+
+1. Establish WebSocket
+2. Receive current sequence/state
+3. Fetch initial HTTP state if necessary
+4. Begin normal event processing
+
+The implementation should be tested specifically for this race.
+
+Team Support
+
+Teams should NOT require separate Durable Objects.
+
+Use:
+
+Game ABC123
+    │
+    └── one Durable Object
+            │
+            ├── Team A
+            │     ├── Phone
+            │     ├── Phone
+            │     └── ...
+            │
+            ├── Team B
+            │     ├── Phone
+            │     └── ...
+            │
+            └── Team C
+
+The Durable Object can broadcast:
+
+Global event
+NEXT
+GAME_START
+GAME_END
+
+to everyone.
+
+Or optionally:
+
+Team-specific event
+{
+  "type": "TEAM_UPDATE",
+  "team": 2,
+  ...
+}
+
+only to Team 2 connections.
+
+Implement team-targeted broadcasting only if the application actually needs it.
+
+Scale Target
+
+Design/test initially for:
+
+50 simultaneous games
+×
+50 phones/game
+=
+2,500 concurrent WebSocket clients
+
+This should be treated as the initial target.
+
+Do not optimize prematurely for thousands of games.
+
+However, the architecture should not fundamentally prevent scaling later.
+
+Payload Size
+
+The real-time WebSocket messages should normally be:
+
+< 1 KB
+
+Ideally:
+
+tens to a few hundred bytes
+
+Do not send large compressed JSON objects for events.
+
+Compression is useful for your existing HTTP responses, but the WebSocket events should be so small that compression provides little benefit.
+
+Error Handling
+
+If Turso update succeeds but WebSocket broadcast fails:
+
+Turso = authoritative
+WebSocket = notification
+
+The next reconnect/state-sync must bring clients back to the correct state.
+
+Never make correctness depend solely on successful WebSocket delivery.
+
+Likewise, if a WebSocket client misses a message, it should recover through state synchronization.
+
+Suggested Implementation Phases
+Phase 1 — WebSocket infrastructure
+
+Create Cloudflare Worker.
+
+Create Durable Object for GameRoom.
+
+Route gameId to the appropriate Durable Object.
+
+Implement WebSocket connection.
+
+Track connected sockets.
+
+Implement broadcast.
+
+Test with 50 simulated clients.
+
+Phase 2 — NEXT event
+
+Add sequence numbers.
+
+Add NEXT event.
+
+Add executeAt.
+
+Broadcast NEXT to all players.
+
+Remove polling for NEXT.
+
+Test synchronization.
+
+Phase 3 — Reliability
+
+Implement WebSocket reconnect.
+
+Implement lastSequence.
+
+Implement state synchronization.
+
+Handle phone going offline.
+
+Handle browser tab sleeping/backgrounding.
+
+Handle server/WebSocket reconnects.
+
+Phase 4 — Remaining events
+
+Move additional real-time events from polling to WebSockets:
+
+GAME_START
+
+NEXT
+
+TIMER_START
+
+TIMER_STOP
+
+PAUSE
+
+RESUME
+
+GAME_END
+
+PLAYER_JOINED
+
+PLAYER_LEFT
+
+Only move events that genuinely benefit from real-time delivery.
+
+Phase 5 — Remove unnecessary polling
+
+Once WebSocket reliability has been verified:
+
+Remove game-state polling.
+
+Keep HTTP API for initial state/recovery.
+
+Keep Turso as source of truth.
+
+Verify database load has dropped significantly.
+
+Important Non-Goals
+
+Do NOT:
+
+migrate Turso to Firebase
+
+replace the existing database
+
+put the entire game database into Durable Objects
+
+send the entire game state on every event
+
+poll Turso from every client
+
+make clients directly modify authoritative game state
+
+depend on WebSocket delivery for permanent state
+
+require a page refresh after temporary network loss
+
+Acceptance Criteria
+
+The implementation is successful when:
+
+Normal network
+
+50 phones in one game receive a NEXT event and visually transition together.
+
+Slow network
+
+Phones with significantly slower connections still eventually transition to the correct round without requiring refresh.
+
+Temporary disconnect
+
+A phone can lose its network for 5–10 seconds, reconnect automatically, and recover the correct game state.
+
+Game Master
+
+GM presses NEXT once.
+
+The system produces exactly one logical NEXT event.
+
+Database
+
+Turso remains the authoritative persistent state.
+
+Load
+
+50 games × 50 phones = 2,500 concurrent WebSocket connections can be maintained.
+
+Performance
+
+A NEXT event should not require 50 database queries or 50 HTTP requests.
+
+The expected path is:
+
+GM
+ ↓
+1 game-state update
+ ↓
+1 real-time broadcast
+ ↓
+50 tiny WebSocket messages
+Final Architecture
+                         ┌────────────────────┐
+                         │       TURSO        │
+                         │                    │
+                         │ SOURCE OF TRUTH    │
+                         └─────────▲──────────┘
+                                   │
+                              existing API
+                                   │
+                         ┌─────────┴──────────┐
+                         │ Existing Backend   │
+                         │                    │
+                         │ Game Logic        │
+                         │ Auth              │
+                         │ Validation        │
+                         └─────────┬──────────┘
+                                   │
+                              notify event
+                                   │
+                         ┌─────────▼──────────┐
+                         │ Cloudflare Worker  │
+                         └─────────┬──────────┘
+                                   │
+                     ┌─────────────▼─────────────┐
+                     │ Durable Object: Game ID  │
+                     │                           │
+                     │ WebSocket connections     │
+                     │ Event sequence            │
+                     │ Broadcast                  │
+                     │ Synchronization            │
+                     └─────────────┬─────────────┘
+                                   │
+             ┌─────────────────────┼─────────────────────┐
+             │                     │                     │
+           WebSocket             WebSocket             WebSocket
+             │                     │                     │
+           📱 1                   📱 2                  📱 50
+             │                     │                     │
+             └─────────────── GAME ROOM ────────────────┘
+
+                    HTTP = state/recovery
+                    WS   = real-time events
+                    Turso = persistent truth
+                    DO   = live coordination
+
+The most important principle for the implementation:
+
+Don't use Cloudflare to replace the database. Use Cloudflare to stop asking the database whether something changed.
