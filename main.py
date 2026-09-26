@@ -39,6 +39,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from io import BytesIO
 from pathlib import Path
+from typing import Literal
 
 import qrcode
 from fastapi import FastAPI, Header, HTTPException, Request
@@ -250,10 +251,23 @@ class JoinBody(BaseModel):
     name: str = Field(max_length=NAME_MAX * 2)
 
 
+class FitDims(BaseModel):
+    w: int = Field(ge=100, le=4000)
+    h: int = Field(ge=100, le=4000)
+
+
 class ReadyBody(BaseModel):
     code: str = Field(max_length=16)
     pid: str = Field(max_length=64)
     ready: bool
+    fit: FitDims | None = None
+
+
+class FitBody(BaseModel):
+    code: str
+    pid: str
+    w: int = Field(ge=100, le=4000)
+    h: int = Field(ge=100, le=4000)
 
 
 class AnswersBody(BaseModel):
@@ -267,6 +281,7 @@ class TeamsBody(BaseModel):
 class SettingsBody(BaseModel):
     edge_marks: bool
     allow_flips: bool
+    piece_orient: Literal["auto", "portrait", "landscape"] = "auto"
 
 
 class RoundBody(BaseModel):
@@ -353,7 +368,7 @@ async def open_room(body: OpenRoomBody, request: Request):
     _mem["room"] = {
         "session_id": session_id, "phase": "lobby", "join_code": join_code,
         "pin_hash": pin_h, "team_count": 1, "current_round": -1,
-        "edge_marks": True, "allow_flips": True, "opened_at": ts,
+        "edge_marks": True, "allow_flips": True, "piece_orient": "auto", "opened_at": ts,
     }
     _mem["players"] = []
     _mem["rounds"] = {}
@@ -398,6 +413,7 @@ async def state(pid: str = "", request: Request = None):
         "current_round": room["current_round"],
         "total_rounds": len(_mem["answers"]),
         "counts": {"players": len(players), "ready": sum(1 for p in players if p["ready"])},
+        "settings": {"piece_orient": room.get("piece_orient", "auto")},
         "you": None,
         "ws_url": _RT_URL or None,
     }
@@ -439,6 +455,7 @@ async def state(pid: str = "", request: Request = None):
                 }
         else:
             rnd["pieces"] = a
+            rnd["fit_scale"] = (snapshot.get("fit_scale") or {}).get(str(me["color_idx"]))
         out["round"] = rnd
     else:
         out["round"] = None
@@ -495,10 +512,23 @@ async def ready(body: ReadyBody):
         raise HTTPException(404, "Join first.")
 
     player["ready"] = body.ready
+    if body.fit:
+        player["fit"] = {"w": body.fit.w, "h": body.fit.h}
     _bump()
     _persist(store.set_ready, room["session_id"], pid, body.ready)
     _notify("PLAYER_READY", pid=pid, ready=body.ready)
 
+    return {"ok": True}
+
+
+@app.post("/api/fit")
+async def fit(body: FitBody):
+    room = _require_room()
+    if body.code.strip().upper() != room["join_code"]:
+        raise HTTPException(403, "Wrong room code.")
+    p = _find_player(body.pid)
+    if p:
+        p["fit"] = {"w": body.w, "h": body.h}
     return {"ok": True}
 
 
@@ -537,7 +567,11 @@ async def host_state(request: Request, x_host_pin: str | None = Header(default=N
         "join_url": _join_url(request, room),
         "team_count": room["team_count"],
         "current_round": room["current_round"],
-        "settings": {"edge_marks": room["edge_marks"], "allow_flips": room["allow_flips"]},
+        "settings": {
+            "edge_marks": room["edge_marks"],
+            "allow_flips": room["allow_flips"],
+            "piece_orient": room.get("piece_orient", "auto"),
+        },
         "players": _mem["players"],
         "answers": _mem["answers"],
         "snapshot": snapshot,
@@ -634,8 +668,9 @@ async def set_settings(body: SettingsBody, x_host_pin: str | None = Header(defau
 
     room["edge_marks"] = body.edge_marks
     room["allow_flips"] = body.allow_flips
+    room["piece_orient"] = body.piece_orient
     _bump()
-    _persist(store.set_settings, body.edge_marks, body.allow_flips)
+    _persist(store.set_settings, body.edge_marks, body.allow_flips, body.piece_orient)
     _notify("SETTINGS_CHANGED")
 
     return {"ok": True}

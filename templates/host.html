@@ -949,6 +949,7 @@ button { font-family: inherit; }
           <div style="display:flex; justify-content:space-between;"><span style="color:var(--dim);">Puzzle mode</span><span style="font-weight:600;" id="s-puzzle-status">On</span></div>
           <div style="display:flex; justify-content:space-between;"><span style="color:var(--dim);">Edge-match marks</span><span style="font-weight:600;" id="s-marks-status">On</span></div>
           <div style="display:flex; justify-content:space-between;"><span style="color:var(--dim);">Upside-down tiles</span><span style="font-weight:600;" id="s-flips-status">Allowed</span></div>
+          <div style="display:flex; justify-content:space-between;"><span style="color:var(--dim);">Letter orientation</span><span style="font-weight:600;" id="s-orient-status">Auto</span></div>
         </div>
 
         <div id="settings-edit-view" class="hidden" style="display:flex; flex-direction:column; gap:12px; margin-top:4px;">
@@ -959,6 +960,14 @@ button { font-family: inherit; }
           <label style="display:flex; align-items:center; gap:8px; font-size:14px; color:#d5dbe3; cursor:pointer;">
             <input type="checkbox" id="chk-flips" style="accent-color:var(--green); width:16px; height:16px;">
             <span>Allow upside-down</span>
+          </label>
+          <label style="display:flex; align-items:center; justify-content:space-between; font-size:14px; color:#d5dbe3; cursor:pointer;">
+            <span>Letter orientation</span>
+            <select id="sel-orient" style="height:32px; padding:0 8px; font-size:13px; font-family:inherit; color:var(--text); background:var(--card2); border:1px solid var(--border2); border-radius:6px; outline:none; cursor:pointer;">
+              <option value="auto">Auto (biggest)</option>
+              <option value="portrait">Always upright</option>
+              <option value="landscape">Always sideways</option>
+            </select>
           </label>
         </div>
 
@@ -1175,8 +1184,10 @@ function renderAll(){
   if(hs.settings){
     $("s-marks-status").textContent = hs.settings.edge_marks ? "On" : "Off";
     $("s-flips-status").textContent = hs.settings.allow_flips ? "Allowed" : "No";
+    $("s-orient-status").textContent = {auto:"Auto", portrait:"Upright", landscape:"Sideways"}[hs.settings.piece_orient||"auto"];
     $("chk-marks").checked = hs.settings.edge_marks;
     $("chk-flips").checked = hs.settings.allow_flips;
+    $("sel-orient").value = hs.settings.piece_orient || "auto";
   }
 
   // Live round controls
@@ -1307,13 +1318,15 @@ async function saveSettings(){
   try{
     await api("/api/host/settings", {method:"POST", body:JSON.stringify({
       edge_marks: $("chk-marks").checked,
-      allow_flips: $("chk-flips").checked
+      allow_flips: $("chk-flips").checked,
+      piece_orient: $("sel-orient").value
     })});
     await refresh();
   }catch(e){}
 }
 $("chk-marks").onchange = saveSettings;
 $("chk-flips").onchange = saveSettings;
+$("sel-orient").onchange = saveSettings;
 
 /* ── Team Count Stepper ── */
 $("kminus").onclick=async()=>{kTouched=true; k=Math.max(1,k-1); $("kval").textContent=k; pushTeams();};

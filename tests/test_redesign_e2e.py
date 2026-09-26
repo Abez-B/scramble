@@ -72,9 +72,18 @@ def test_routes():
     assert r1.status_code == 200 and r2.status_code == 200
     print("  ✓ 2 players joined")
 
-    # Ready up
-    client.post("/api/ready", json={"code": code, "pid": "pid-111", "ready": True})
-    client.post("/api/ready", json={"code": code, "pid": "pid-222", "ready": True})
+    # Ready up with fit reporting (Part C)
+    r = client.post("/api/ready", json={"code": code, "pid": "pid-111", "ready": True, "fit": {"w": 360, "h": 780}})
+    assert r.status_code == 200
+    r = client.post("/api/ready", json={"code": code, "pid": "pid-222", "ready": True})
+    assert r.status_code == 200
+
+    # Dedicated /api/fit endpoint test
+    r = client.post("/api/fit", json={"code": code, "pid": "pid-222", "w": 412, "h": 915})
+    assert r.status_code == 200
+    r = client.post("/api/fit", json={"code": "WRONG", "pid": "pid-222", "w": 412, "h": 915})
+    assert r.status_code == 403
+    print("  ✓ /api/fit endpoint and fit in /api/ready verified")
 
     # Host state
     r = client.get("/api/host/state", headers={"x-host-pin": pin})
@@ -82,7 +91,28 @@ def test_routes():
     hs = r.json()
     assert len(hs["players"]) == 2
     assert hs["answers"] == answers
-    print("  ✓ /api/host/state OK with answers and players")
+    assert hs.get("settings", {}).get("piece_orient") == "auto"
+    print("  ✓ /api/host/state OK with answers, players, and default piece_orient='auto'")
+
+    # Check player state includes piece_orient
+    r = client.get(f"/api/state?code={code}&pid=pid-111")
+    assert r.status_code == 200
+    ps = r.json()
+    assert ps.get("settings", {}).get("piece_orient") == "auto"
+    print("  ✓ /api/state OK with default piece_orient='auto'")
+
+    # Update host settings (Part B)
+    r = client.post("/api/host/settings", json={"edge_marks": False, "allow_flips": True, "piece_orient": "portrait"}, headers={"x-host-pin": pin})
+    assert r.status_code == 200
+    print("  ✓ /api/host/settings updated to piece_orient='portrait'")
+
+    # Verify updated settings in host and player state
+    r = client.get("/api/host/state", headers={"x-host-pin": pin})
+    assert r.json()["settings"]["piece_orient"] == "portrait"
+    assert r.json()["settings"]["edge_marks"] is False
+    r = client.get(f"/api/state?code={code}&pid=pid-111")
+    assert r.json()["settings"]["piece_orient"] == "portrait"
+    print("  ✓ Updated piece_orient reflected in host state and player state")
 
     # Assign colors & go live
     r = client.post("/api/host/assign", headers={"x-host-pin": pin})
@@ -98,10 +128,31 @@ def test_routes():
     assert proj_data["players"][0]["color_idx"] >= 0
     print("  ✓ Projector state reflects live team screen with color assignments")
 
-    # Deal Round 1
+    # Deal Round 1 ("REDESIGN" -> > 4 letters -> pieces mode)
     r = client.post("/api/host/round", json={"action": "next"}, headers={"x-host-pin": pin})
     assert r.status_code == 200
     print("  ✓ Round 1 dealt")
+
+    # Verify fit_scale in round snapshot and player states (Part C)
+    r = client.get("/api/host/state", headers={"x-host-pin": pin})
+    assert r.status_code == 200
+    hs_live = r.json()
+    snap = hs_live["snapshot"]
+    assert "fit_scale" in snap
+    team_fit_scale = snap["fit_scale"].get("0")
+    assert team_fit_scale is not None and team_fit_scale > 0
+    print(f"  ✓ Snapshot calculated team fit_scale: {team_fit_scale}")
+
+    # Verify player 1 and player 2 receive fit_scale in /api/state
+    r = client.get(f"/api/state?code={code}&pid=pid-111")
+    assert r.status_code == 200
+    p1_state = r.json()
+    assert p1_state["round"]["fit_scale"] == team_fit_scale
+    r = client.get(f"/api/state?code={code}&pid=pid-222")
+    assert r.status_code == 200
+    p2_state = r.json()
+    assert p2_state["round"]["fit_scale"] == team_fit_scale
+    print("  ✓ Player state /api/state exposes round.fit_scale cap correctly")
 
     # Verify projector state after round dealt
     r = client.get("/api/projector/state")

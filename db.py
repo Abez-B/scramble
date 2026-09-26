@@ -32,6 +32,7 @@ _STATEMENTS = [
         current_round INTEGER NOT NULL DEFAULT -1,
         edge_marks INTEGER NOT NULL DEFAULT 1,
         allow_flips INTEGER NOT NULL DEFAULT 1,
+        piece_orient TEXT NOT NULL DEFAULT 'auto',
         opened_at INTEGER NOT NULL
     )""",
     """CREATE TABLE IF NOT EXISTS player (
@@ -83,6 +84,7 @@ class Store:
             for mig in (
                 "ALTER TABLE room ADD COLUMN edge_marks INTEGER NOT NULL DEFAULT 1",
                 "ALTER TABLE room ADD COLUMN allow_flips INTEGER NOT NULL DEFAULT 1",
+                "ALTER TABLE room ADD COLUMN piece_orient TEXT NOT NULL DEFAULT 'auto'",
             ):
                 try:
                     self._conn.execute(mig)
@@ -105,7 +107,7 @@ class Store:
     def get_room(self):
         rows = self._query(
             "SELECT session_id, phase, join_code, pin_hash, team_count, current_round, "
-            "edge_marks, allow_flips, opened_at FROM room WHERE id = 1"
+            "edge_marks, allow_flips, piece_orient, opened_at FROM room WHERE id = 1"
         )
         if not rows:
             return None
@@ -119,13 +121,14 @@ class Store:
             "current_round": int(r[5]),
             "edge_marks": bool(r[6]),
             "allow_flips": bool(r[7]),
-            "opened_at": r[8],
+            "piece_orient": r[8] or "auto",
+            "opened_at": r[9],
         }
 
     def open_room(self, session_id, join_code, pin_hash, ts):
         self._exec(
             "INSERT OR REPLACE INTO room (id, session_id, phase, join_code, pin_hash, team_count, current_round, "
-            "edge_marks, allow_flips, opened_at) VALUES (1, ?, 'lobby', ?, ?, 1, -1, 1, 1, ?)",
+            "edge_marks, allow_flips, piece_orient, opened_at) VALUES (1, ?, 'lobby', ?, ?, 1, -1, 1, 1, 'auto', ?)",
             (session_id, join_code, pin_hash, ts),
         )
 
@@ -135,10 +138,10 @@ class Store:
     def set_team_count(self, n):
         self._exec("UPDATE room SET team_count = ? WHERE id = 1", (n,))
 
-    def set_settings(self, edge_marks, allow_flips):
+    def set_settings(self, edge_marks, allow_flips, piece_orient="auto"):
         self._exec(
-            "UPDATE room SET edge_marks = ?, allow_flips = ? WHERE id = 1",
-            (1 if edge_marks else 0, 1 if allow_flips else 0),
+            "UPDATE room SET edge_marks = ?, allow_flips = ?, piece_orient = ? WHERE id = 1",
+            (1 if edge_marks else 0, 1 if allow_flips else 0, piece_orient),
         )
 
     def set_current_round(self, idx):

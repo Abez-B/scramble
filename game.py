@@ -108,6 +108,17 @@ def make_snapshot(idx, answer, players, edge_marks=True, allow_flips=True):
     return _pieces_snapshot(idx, answer, players)
 
 
+GLYPH_W = 64.0   # Space Grotesk 700 average advance per letter at font-size 100, incl. letter-spacing 2
+CAP_H = 100.0     # bbox height at font-size 100 (ascent+descent)
+
+
+def _fit_scale(fit, text):
+    w = len(text) * GLYPH_W
+    h = CAP_H
+    long_, short = max(fit["w"], fit["h"]), min(fit["w"], fit["h"])
+    return max(min(fit["w"] / w, fit["h"] / h), min(long_ / w, short / h))   # best of portrait / sideways
+
+
 def _pieces_snapshot(idx, answer, players):
     """Deal the answer as contiguous, IN-ORDER text pieces — one per phone.
 
@@ -137,6 +148,17 @@ def _pieces_snapshot(idx, answer, players):
         for i, pid in enumerate(order):
             assignments[pid] = [pieces[i]] if i < k else []
 
+    fit_scale = {}
+    for color_idx, pids in teams.items():
+        scales = []
+        for pid in pids:
+            p = next((x for x in players if x["pid"] == pid), None)
+            pieces = assignments.get(pid) or []
+            if p and p.get("fit") and pieces:
+                scales.append(_fit_scale(p["fit"], "  ".join(pieces)))
+        if scales:
+            fit_scale[str(color_idx)] = round(min(scales), 4)
+
     return {
         "idx": idx,
         "mode": "pieces",
@@ -144,6 +166,7 @@ def _pieces_snapshot(idx, answer, players):
         "shape": shape(answer),
         "letter_count": len(letters),
         "assignments": assignments,
+        "fit_scale": fit_scale,
         "made_at": int(time.time() * 1000),
     }
 

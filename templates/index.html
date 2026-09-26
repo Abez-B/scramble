@@ -2,14 +2,14 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
 <title>scramble — unjumble with your team</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 :root{--bg:#0D1117;--card:#151B23;--card2:#1C242E;--border:#2A3442;--text:#F3F6FA;--dim:#93A1B1;--faint:#5C6B7A}
 *{box-sizing:border-box;margin:0}
-body{min-height:100vh;font-family:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;color:var(--text);
+body{min-height:100vh;min-height:100dvh;font-family:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;color:var(--text);
   background:radial-gradient(1100px 560px at 50% -12%,#17222E 0%,var(--bg) 55%);-webkit-tap-highlight-color:transparent}
 .wrap{max-width:430px;margin:0 auto;padding:36px 20px 48px;display:flex;flex-direction:column;gap:20px}
 .logo{display:flex;align-items:center;gap:8px;user-select:none}
@@ -50,6 +50,17 @@ label{font-size:14px;font-weight:700;color:var(--dim);display:block;margin-botto
 .pill{font-size:12px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;border-radius:99px;padding:7px 16px}
 .tiles{display:flex;flex-wrap:wrap;gap:12px;justify-content:center;align-items:center;max-width:96vw}
 .tile{font-weight:700;line-height:1;border-radius:.18em;padding:.12em .18em}
+.piecebox{position:absolute;inset:0;z-index:1;
+  padding:calc(4px + env(safe-area-inset-top,0px)) calc(4px + env(safe-area-inset-right,0px))
+          calc(4px + env(safe-area-inset-bottom,0px)) calc(4px + env(safe-area-inset-left,0px))}
+.piecebox .fitarea{position:relative;width:100%;height:100%}
+.piecebox .word{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%)}
+.piecebox .word.rot{transform:translate(-50%,-50%) rotate(-90deg)}
+.piecebox svg{display:block;width:100%;height:100%;overflow:visible}
+.infolayer{position:absolute;left:50%;transform:translateX(-50%);top:calc(10px + env(safe-area-inset-top,0px));
+  z-index:5;display:flex;flex-direction:column;align-items:center;gap:6px;pointer-events:none}
+.infolayer .pill,.infolayer .hint{background:rgba(0,0,0,.5);color:#fff;border-radius:99px;padding:6px 14px;white-space:nowrap}
+.infolayer .hint{font-size:12px;font-weight:400;letter-spacing:0;text-transform:none;opacity:.95}
 .shape{display:flex;flex-direction:column;gap:8px;align-items:center}
 .shape .word{display:flex;gap:5px}
 .shape .cell{width:16px;height:20px;border-radius:4px;border:2px solid currentColor;opacity:.75}
@@ -326,6 +337,9 @@ window.addEventListener("online",()=>{
   if(wsUrl&&!wsConnected)connectWS();
   else refreshFromHTTP();
 });
+let _rz;
+window.addEventListener("resize",()=>{clearTimeout(_rz);_rz=setTimeout(()=>{if(lastState)render(lastState);},80);});
+if(document.fonts&&document.fonts.ready)document.fonts.ready.then(()=>{if(lastState)render(lastState);});
 
 /* ------------------------------ render ------------------------------ */
 function render(st){
@@ -441,20 +455,47 @@ function render(st){
           :`Rotate your phone ${t.rot===180?"180°":(t.rot===90?"90° ⟲":"90° ⟳")} — then find your spot!`);
     }
   }else{
-  const pieces=st.round.pieces||[];
-  if(pieces.length===0){ // solver
-    $("tiles").innerHTML=`<div class="tile" style="background:${overlay};font-size:clamp(34px,11vw,60px);padding:.4em .6em">SOLVER</div>`;
-    $("rd-hint").textContent=info?"No piece for you — direct your team's line-up!":"";
-  }else{
-    const maxLen=Math.max(...pieces.map(p=>p.length));
-    const fs=`min(${(88/maxLen).toFixed(1)}vw, ${info?"34vh":"42vh"})`;
-    $("tiles").innerHTML=pieces.map(p=>`<div class="tile" style="background:${overlay};font-size:${fs};letter-spacing:.05em">${esc(p)}</div>`).join("");
-    $("rd-hint").textContent=!info?""
-      :(pieces.length>1
-        ?"Solo round: put your pieces in order!"
-        :"Your piece reads in order — the jumble is across phones. Line up!");
+    const pieces=st.round.pieces||[];
+    if(pieces.length===0){ // solver (unchanged)
+      $("tiles").innerHTML=`<div class="tile" style="background:${overlay};font-size:clamp(34px,11vw,60px);padding:.4em .6em">SOLVER</div>`;
+      $("rd-hint").textContent=info?"No piece for you — direct your team's line-up!":"";
+    }else{
+      const pref=(st.settings&&st.settings.piece_orient)||"auto";   // "auto" until Part B exists
+      const text=pieces.join("  ");                                  // solo rounds carry 2-3 pieces
+      $("tiles").innerHTML=`<div class="piecebox"><div class="fitarea" id="fitarea"></div>
+        <div class="infolayer" id="infolayer"></div></div>`;
+      const fa=$("fitarea"), box={w:fa.clientWidth,h:fa.clientHeight};  // real box, after padding + safe area
+      const bb=measureText(text);
+      const sP=Math.min(box.w/bb.w,box.h/bb.h), sL=Math.min(box.h/bb.w,box.w/bb.h);
+      const landscape=pref==="landscape"||(pref==="auto"&&sL>sP*1.15);
+      let s=landscape?sL:sP;
+      if(st.round.fit_scale)s=Math.min(s,st.round.fit_scale);                // Part C cap, if the server sends one
+      fa.innerHTML=`<div class="word${landscape?" rot":""}" style="width:${bb.w*s}px;height:${bb.h*s}px">
+        <svg viewBox="${bb.x} ${bb.y} ${bb.w} ${bb.h}" preserveAspectRatio="xMidYMid meet">
+          <text x="0" y="0" font-size="100" font-weight="700" fill="${col.fg}"
+            font-family="'Space Grotesk',sans-serif" letter-spacing="2">${esc(text)}</text></svg></div>`;
+      $("infolayer").innerHTML=`<div class="pill">Round ${st.round.idx+1}${st.total_rounds?` of ${st.total_rounds}`:""}</div>
+        <div class="hint">${landscape?"Turn your phone sideways ⟳ · ":""}${pieces.length>1?"Solo round: put your pieces in order":"Line up with your team"}</div>`;
+      $("infolayer").style.visibility=info?"visible":"hidden";
+      $("st-top").style.visibility="hidden";   // the pill now lives in the overlay
+      $("rd-hint").textContent="";
+    }
   }
+}
+
+/* Measure text accurately via SVG bounding box */
+let _m;
+function measureText(text){
+  if(!_m){
+    _m=document.createElementNS("http://www.w3.org/2000/svg","svg");
+    _m.setAttribute("aria-hidden","true");
+    _m.setAttribute("style","position:absolute;width:0;height:0;overflow:hidden");
+    _m.innerHTML=`<text font-size="100" font-weight="700" font-family="'Space Grotesk',sans-serif" letter-spacing="2"></text>`;
+    document.body.appendChild(_m);
   }
+  _m.firstChild.textContent=text;
+  const b=_m.firstChild.getBBox();
+  return{x:b.x,y:b.y,w:Math.max(1,b.width),h:Math.max(1,b.height)};
 }
 
 /* Puzzle tiles: every phone draws the SAME word canvas (per-letter cells,
@@ -489,21 +530,29 @@ $("b-name").onclick=async()=>{
       if(r.status===403){showSection("s-code");err("e-code",d.detail||"Wrong room code.");return;}
       return err("e-name",d.detail||"Couldn't join — try again.");
     }
-    joined=true;refreshFromHTTP();
+    joined=true;reportFit();refreshFromHTTP();
   }catch(e){err("e-name","Network hiccup — try again.");}
   finally{$("b-name").disabled=false;}
 };
 
 async function autoRejoin(){
   try{await fetch("/api/join",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({code,pid,name})});}catch(e){}
+    body:JSON.stringify({code,pid,name})});reportFit();}catch(e){}
 }
+
+function reportFit(){
+  if(!pid||!code)return;
+  fetch("/api/fit",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({code,pid,w:window.innerWidth-8,h:window.innerHeight-8})}).catch(()=>{});
+}
+reportFit();
+window.addEventListener("resize",reportFit);
 
 $("b-ready").onclick=async()=>{
   if(readyBusy)return;readyBusy=true;
   const on=!$("b-ready").classList.contains("on");
   try{await fetch("/api/ready",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({code,pid,ready:on})});}catch(e){}
+    body:JSON.stringify({code,pid,ready:on,fit:{w:window.innerWidth-8,h:window.innerHeight-8}})});}catch(e){}
   readyBusy=false;refreshFromHTTP();
 };
 
