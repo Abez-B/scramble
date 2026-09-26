@@ -87,6 +87,7 @@ _db_pool = ThreadPoolExecutor(max_workers=1)
 _TEMPLATES = Path(__file__).parent / "templates"
 INDEX_HTML = (_TEMPLATES / "index.html").read_text(encoding="utf-8")
 HOST_HTML = (_TEMPLATES / "host.html").read_text(encoding="utf-8")
+PROJECTOR_HTML = (_TEMPLATES / "projector.html").read_text(encoding="utf-8")
 
 # ─────────────────────────────────────────────────────── helpers
 
@@ -285,6 +286,45 @@ async def index():
 @app.get("/host", response_class=HTMLResponse)
 async def host_page():
     return HOST_HTML
+
+
+@app.get("/projector", response_class=HTMLResponse)
+async def projector_page():
+    return PROJECTOR_HTML
+
+
+@app.get("/api/projector/state")
+async def projector_state(request: Request):
+    room = _mem["room"]
+    if not room:
+        return JSONResponse({"exists": False}, headers={"Cache-Control": "no-cache"})
+
+    etag = f'W/"{_mem["version"]}"'
+    if request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag, "Cache-Control": "no-cache"})
+
+    players = _mem["players"]
+    data = {
+        "exists": True,
+        "session_id": room["session_id"],
+        "join_code": room["join_code"],
+        "join_url": f"{request.base_url}?c={room['join_code']}",
+        "phase": room["phase"],
+        "current_round": room["current_round"],
+        "total_rounds": len(_mem["answers"]),
+        "team_count": room["team_count"],
+        "counts": {
+            "players": len(players),
+            "ready": sum(1 for p in players if p["ready"]),
+        },
+        "players": [
+            {"name": p["name"], "ready": p["ready"], "color_idx": p["color_idx"]}
+            for p in players
+        ],
+        "palette": PALETTE,
+        "ws_url": _RT_URL,
+    }
+    return _etag_response(request, data)
 
 
 # ─────────────────────────────────────────────────── player API

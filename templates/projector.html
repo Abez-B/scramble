@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>scramble — projector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0d1015;
+  --card: #151a20;
+  --border: #232a33;
+  --text: #f2f4f7;
+  --dim: #98a2b3;
+  --faint: #5c6b7a;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Space Grotesk', system-ui, sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+}
+.display-wrap {
+  flex-grow: 1;
+  width: 100%;
+  max-width: 1920px;
+  margin: 0 auto;
+  padding: 48px 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 40px;
+}
+@media (min-width: 1200px) {
+  .display-wrap { padding: 64px 96px; }
+}
+
+/* Header */
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  user-select: none;
+}
+.logo-dots {
+  display: flex;
+  gap: 5px;
+  align-items: center;
+}
+.logo-dots span {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.logo b {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 18px;
+  color: var(--dim);
+}
+.dot-live {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #43c26a;
+  animation: pulse-dot 1.2s infinite alternate;
+}
+@keyframes pulse-dot {
+  from { opacity: 0.4; transform: scale(0.85); }
+  to { opacity: 1; transform: scale(1.1); }
+}
+
+/* Screens */
+.hidden { display: none !important; }
+
+/* ── Screen: Lobby ── */
+#s-lobby {
+  flex-grow: 1;
+  display: flex;
+  align-items: center;
+  gap: 64px;
+}
+@media (max-width: 900px) {
+  #s-lobby { flex-direction: column; text-align: center; gap: 36px; }
+}
+.qr-card {
+  flex-shrink: 0;
+  width: min(480px, 40vw);
+  height: min(480px, 40vw);
+  background: #ffffff;
+  border-radius: 36px;
+  padding: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+}
+.qr-card img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+.lobby-info {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  flex-grow: 1;
+}
+.lobby-tag {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.huge-code {
+  font-family: 'Archivo Black', 'Space Grotesk', sans-serif;
+  font-size: clamp(80px, 12vw, 190px);
+  letter-spacing: 0.12em;
+  line-height: 0.95;
+  color: var(--text);
+}
+.join-url-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: clamp(18px, 2.2vw, 28px);
+  color: #d5dbe3;
+  flex-wrap: wrap;
+}
+.join-url-line span.hl {
+  font-weight: 700;
+  color: #ffffff;
+}
+.players-counter {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-top: 12px;
+}
+.players-counter .num {
+  font-family: 'Archivo Black', 'Space Grotesk', sans-serif;
+  font-size: clamp(42px, 5vw, 64px);
+  line-height: 1;
+}
+.players-counter .label {
+  font-size: clamp(18px, 2vw, 26px);
+  color: var(--dim);
+}
+.player-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 8px;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.chip {
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 999px;
+  border: 2px solid #2a323d;
+  background: var(--card);
+  font-size: 19px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip.you {
+  border-style: dashed;
+  border-color: #3a4350;
+  color: var(--dim);
+}
+
+/* ── Screen: Team Screen ── */
+#s-teams {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 40px;
+}
+.teams-header {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.teams-tag {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.teams-title {
+  font-family: 'Archivo Black', 'Space Grotesk', sans-serif;
+  font-size: clamp(52px, 7vw, 120px);
+  line-height: 1;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+}
+.teams-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 24px;
+}
+.team-card {
+  min-height: 190px;
+  border-radius: 24px;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+}
+.team-name {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.team-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.team-num {
+  font-family: 'Archivo Black', 'Space Grotesk', sans-serif;
+  font-size: 58px;
+  line-height: 1;
+}
+.team-members {
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+/* Footer info */
+.footer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 20px;
+  color: var(--dim);
+  flex-wrap: wrap;
+  gap: 16px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding-top: 24px;
+}
+.late-join-box {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.late-join-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+.late-join-text .t1 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--dim);
+}
+.late-join-text .t2 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  color: var(--text);
+}
+.mini-qr {
+  width: 90px;
+  height: 90px;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 6px;
+  flex-shrink: 0;
+}
+.mini-qr img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  object-fit: contain;
+}
+
+/* ── Screen: Waiting / Empty ── */
+#s-empty {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 20px;
+}
+#s-empty h1 {
+  font-size: 40px;
+  font-weight: 700;
+}
+#s-empty p {
+  font-size: 20px;
+  color: var(--dim);
+}
+</style>
+</head>
+<body>
+
+<div class="display-wrap">
+
+  <!-- Top Bar -->
+  <header class="top-bar">
+    <div class="logo">
+      <div class="logo-dots" id="logodots"></div>
+      <b>scramble</b>
+    </div>
+    <div class="live-badge" id="livebadge">
+      <div class="dot-live"></div>
+      <span id="badgetext">Connecting…</span>
+    </div>
+  </header>
+
+  <!-- Empty / No Room -->
+  <main id="s-empty" class="hidden">
+    <h1>No room is open right now</h1>
+    <p>Open a room from the Host Console to start the game.</p>
+  </main>
+
+  <!-- 1. Lobby Screen -->
+  <main id="s-lobby" class="hidden">
+    <div class="qr-card">
+      <img id="qrimg" alt="QR Code to Join">
+    </div>
+    <div class="lobby-info">
+      <div class="lobby-tag">Scan to join</div>
+      <div class="huge-code" id="jcode">—</div>
+      <div class="join-url-line">
+        <span>or go to</span>
+        <span class="hl" id="jurl-clean">scrambles.fly.dev</span>
+        <span>and type the code</span>
+      </div>
+      <div class="players-counter">
+        <div class="num" id="pcount">0</div>
+        <div class="label" id="plabel">joined so far</div>
+      </div>
+      <div class="player-chips" id="pchips"></div>
+    </div>
+  </main>
+
+  <!-- 2. Team Screen -->
+  <main id="s-teams" class="hidden">
+    <div class="teams-header">
+      <div class="teams-tag">Look at your phone</div>
+      <div class="teams-title">Find the people with your color</div>
+    </div>
+    <div class="teams-grid" id="teamsgrid"></div>
+  </main>
+
+  <!-- Footer Bar -->
+  <footer class="footer-bar">
+    <div id="footer-left">Late? Scan anyway — you'll get letters from the next round.</div>
+    <div class="late-join-box" id="latebox" style="display:none;">
+      <div class="late-join-text">
+        <span class="t1">LATE? SCAN TO JOIN</span>
+        <span class="t2" id="latecode"></span>
+      </div>
+      <div class="mini-qr">
+        <img id="miniqrimg" alt="Mini QR">
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
+
+const PALETTE=["#FF3B30","#0A84FF","#2ECC71","#FFD60A","#AF52DE","#FF9500","#FF2D92","#00C7BE","#5856D6","#BEF264","#32ADE6","#A2845E"];
+$("logodots").innerHTML=["#EF5350","#43C26A","#4A90F0","#F2C230"].map(c=>`<span style="background:${c}"></span>`).join("");
+
+let state=null, lastETag=null, pollTimer=null;
+let wsUrl=null, ws=null, wsConnected=false, wsRetries=0;
+
+async function fetchProjectorState(){
+  try {
+    const headers={};
+    if(lastETag)headers["If-None-Match"]=lastETag;
+    const r=await fetch("/api/projector/state",{headers});
+    if(r.status===304)return;
+    lastETag=r.headers.get("etag")||null;
+    if(!r.ok)return;
+    state=await r.json();
+    render();
+    if(state.ws_url && !wsUrl){
+      wsUrl=state.ws_url;
+      connectWS();
+    }
+  }catch(e){
+    console.warn("[PROJECTOR] State fetch failed:", e);
+  }
+}
+
+function render(){
+  if(!state || !state.exists){
+    $("s-empty").classList.remove("hidden");
+    $("s-lobby").classList.add("hidden");
+    $("s-teams").classList.add("hidden");
+    $("badgetext").textContent="Waiting for host";
+    $("latebox").style.display="none";
+    return;
+  }
+
+  $("s-empty").classList.add("hidden");
+  const isLobby = state.phase === "lobby";
+  $("s-lobby").classList.toggle("hidden", !isLobby);
+  $("s-teams").classList.toggle("hidden", isLobby);
+
+  // Common details
+  const qrSrc = "/api/qr?code=" + encodeURIComponent(state.join_code);
+  $("jcode").textContent = state.join_code;
+  $("latecode").textContent = state.join_code;
+  if($("qrimg").getAttribute("src") !== qrSrc) $("qrimg").src = qrSrc;
+  if($("miniqrimg").getAttribute("src") !== qrSrc) $("miniqrimg").src = qrSrc;
+
+  if(isLobby){
+    $("badgetext").textContent = "Waiting for the host to start";
+    $("pcount").textContent = state.players.length;
+    $("plabel").textContent = state.players.length === 1 ? "joined so far" : "joined so far";
+    $("latebox").style.display = "none";
+    $("footer-left").textContent = "Late? Scan anyway — you'll get letters from the next round.";
+
+    const chipsHtml = state.players.map(p => {
+      return `<div class="chip"><span>${esc(p.name)}</span>${p.ready ? '<span style="color:#43c26a;">✓</span>' : ''}</div>`;
+    }).join("") + '<div class="chip you">you?</div>';
+    $("pchips").innerHTML = chipsHtml;
+  } else {
+    // Live / Teams
+    const roundIdx = state.current_round >= 0 ? state.current_round + 1 : 1;
+    const totalRounds = state.total_rounds || 1;
+    $("badgetext").textContent = `Round ${roundIdx} of ${totalRounds} · ${state.players.length} players · Live`;
+    $("latebox").style.display = "flex";
+    $("footer-left").textContent = "Letters arrive on your phone when the host deals the round.";
+
+    // Render team cards
+    const teams = {};
+    for(let i=0; i<state.team_count; i++){
+      teams[i] = [];
+    }
+    state.players.forEach(p => {
+      if(p.color_idx >= 0 && teams[p.color_idx]){
+        teams[p.color_idx].push(p.name);
+      }
+    });
+
+    const palette = state.palette || PALETTE;
+    const teamCardsHtml = Object.keys(teams).map(idxStr => {
+      const idx = parseInt(idxStr, 10);
+      const c = palette[idx % palette.length];
+      const members = teams[idx];
+      const membersText = members.length > 0 ? members.map(esc).join(" · ") : "Waiting for players…";
+      const fgColor = c.fg || "#ffffff";
+      return `
+        <div class="team-card" style="background:${c.hex}; color:${fgColor};">
+          <div class="team-name">${esc(c.name)}</div>
+          <div class="team-meta">
+            <div class="team-num">${idx + 1}</div>
+            <div class="team-members">${membersText}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+    $("teamsgrid").innerHTML = teamCardsHtml;
+  }
+}
+
+/* ── Realtime WebSocket ── */
+function connectWS(){
+  if(!wsUrl || ws || !state) return;
+  const proto = wsUrl.replace(/^http/, "ws");
+  const url = `${proto}/ws/${state.session_id}?pid=projector&role=projector`;
+  try {
+    ws = new WebSocket(url);
+  } catch(e) {
+    wsFallback();
+    return;
+  }
+
+  ws.onopen = () => {
+    wsRetries = 0;
+    wsConnected = true;
+    stopPolling();
+  };
+
+  ws.onmessage = () => {
+    fetchProjectorState();
+  };
+
+  ws.onclose = () => {
+    ws = null;
+    wsConnected = false;
+    wsReconnect();
+  };
+
+  ws.onerror = () => {
+    ws = null;
+    wsConnected = false;
+    wsReconnect();
+  };
+}
+
+function wsReconnect(){
+  wsRetries++;
+  const delay = Math.min(1000 * Math.pow(1.5, wsRetries - 1), 10000);
+  if(wsRetries >= 5){
+    wsFallback();
+    return;
+  }
+  setTimeout(connectWS, delay);
+}
+
+function wsFallback(){
+  wsRetries = 0;
+  startPolling();
+  setTimeout(() => {
+    if(!wsConnected && wsUrl) connectWS();
+  }, 30000);
+}
+
+function startPolling(){
+  stopPolling();
+  pollTimer = setInterval(fetchProjectorState, 2000);
+}
+function stopPolling(){
+  if(pollTimer){
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+}
+
+// Initial start
+fetchProjectorState();
+startPolling();
+</script>
+</body>
+</html>
