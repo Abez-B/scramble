@@ -81,6 +81,71 @@ button { font-family: inherit; }
   padding: 3px 10px;
 }
 
+/* Mode Selector Tabs */
+.mode-tabs {
+  display: inline-flex;
+  background: var(--card2);
+  border: 1px solid var(--border2);
+  border-radius: 999px;
+  padding: 3px;
+  gap: 4px;
+}
+.mode-tab {
+  background: transparent;
+  border: none;
+  color: var(--dim);
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.mode-tab:hover {
+  color: var(--text);
+}
+.mode-tab.active {
+  background: var(--text);
+  color: var(--bg);
+  font-weight: 700;
+}
+.score-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--card2);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+}
+.score-pill {
+  font-family: 'Archivo Black', 'Space Grotesk', sans-serif;
+  font-size: 18px;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: #0d1015;
+  border: 1px solid var(--border);
+  min-width: 50px;
+  text-align: center;
+}
+.score-btn {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--card);
+  color: var(--text);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.score-btn:hover {
+  background: var(--border2);
+}
+
 /* 2-column layout for setup */
 .setup-grid {
   display: grid;
@@ -217,17 +282,43 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
-  padding: 0 32px;
+  min-height: 64px;
+  height: auto;
+  padding: 10px 32px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
-  flex-wrap: wrap;
-  gap: 12px;
+  gap: 14px;
 }
 .nav-left {
   display: flex;
   align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.nav-header-row {
+  display: flex;
+  align-items: center;
   gap: 12px;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.nav-room {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.room-label {
+  font-size: 13px;
+  color: var(--dim);
+}
+.nav-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--border2);
+  margin: 0 2px;
 }
 .room-badge {
   font-size: 16px;
@@ -240,6 +331,7 @@ button { font-family: inherit; }
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
 }
 .pill-status {
   display: flex;
@@ -636,6 +728,242 @@ button { font-family: inherit; }
   font-size: 13px;
 }
 .ok-box.show { display: inline-block; }
+
+/* ── Mobile Responsive Styles ── */
+@media (max-width: 860px) {
+  .dash-nav {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px;
+    gap: 10px;
+    min-height: unset;
+    height: auto;
+  }
+  .nav-left {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+    width: 100%;
+  }
+  .nav-header-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+  }
+  .nav-sep {
+    display: none;
+  }
+  .mode-tabs {
+    display: flex;
+    width: 100%;
+    gap: 4px;
+  }
+  .mode-tab {
+    flex: 1;
+    text-align: center;
+    justify-content: center;
+    padding: 8px 6px;
+    font-size: 13px;
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .nav-right {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+  }
+  .pill-status {
+    flex: 1;
+    height: 34px;
+    padding: 0 10px;
+    font-size: 12px;
+    min-width: 0;
+    overflow: hidden;
+  }
+  .pill-status span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .btn-projector {
+    flex-shrink: 0;
+    height: 34px;
+    padding: 0 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .stepper-bar {
+    height: 50px;
+    padding: 0 16px;
+    gap: 6px;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .stepper-bar::-webkit-scrollbar {
+    display: none;
+  }
+  .step-item {
+    height: 32px;
+    padding: 0 10px 0 6px;
+    font-size: 13px;
+    gap: 6px;
+  }
+  .step-num {
+    width: 20px;
+    height: 20px;
+    font-size: 11px;
+  }
+  .step-line {
+    width: 12px;
+  }
+  #rounds-summary {
+    display: none;
+  }
+  .dash-body {
+    padding: 16px 14px;
+    gap: 16px;
+  }
+  .main-col, .side-col {
+    gap: 16px;
+  }
+  .c-box {
+    padding: 16px;
+    border-radius: 16px;
+    gap: 14px;
+  }
+  .c-box-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .proj-preview-card {
+    gap: 16px;
+  }
+  .mini-tv {
+    width: 100% !important;
+    max-width: 100%;
+    height: auto;
+    min-height: 140px;
+    padding: 12px 14px;
+    box-sizing: border-box;
+  }
+  .tv-lobby-row {
+    gap: 12px;
+  }
+  .tv-qr {
+    width: 76px;
+    height: 76px;
+    padding: 4px;
+  }
+  .tv-code {
+    font-size: 22px;
+  }
+  #lobby-action-box {
+    width: 100%;
+  }
+  #join-url-pill {
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+  }
+  .score-row {
+    padding: 10px 12px;
+  }
+  .score-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .score-pill {
+    font-size: 16px;
+    padding: 4px 10px;
+    min-width: 44px;
+  }
+  #comp-buzzer-status {
+    padding: 12px 14px !important;
+    gap: 10px !important;
+  }
+  #comp-buzzer-icon {
+    font-size: 22px !important;
+  }
+  #comp-buzzer-title {
+    font-size: 14px !important;
+  }
+  #comp-buzzer-desc {
+    font-size: 12px !important;
+  }
+  .answers-box {
+    padding: 16px;
+    border-radius: 16px;
+    gap: 12px;
+  }
+  .private-tag {
+    font-size: 10px;
+    padding: 3px 8px;
+  }
+  #ans-btn-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .nav-btn-row {
+    display: flex;
+    gap: 8px;
+  }
+  .btn-back {
+    width: 80px;
+    height: 48px;
+    font-size: 14px;
+  }
+  .btn-deal {
+    height: 48px;
+    font-size: 16px;
+  }
+  .btn-primary {
+    height: 48px;
+    font-size: 16px;
+  }
+  .dash-footer {
+    height: auto;
+    min-height: 56px;
+    padding: 14px 16px;
+    flex-direction: column;
+    align-items: stretch;
+    text-align: center;
+    gap: 12px;
+  }
+  .dash-footer > div:last-child {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+    width: 100%;
+  }
+  .dash-footer .btn-subtle, .dash-footer .btn-danger {
+    flex: 1;
+    height: 40px;
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 600px) {
+  .center-wrap {
+    padding: 24px 16px;
+    gap: 24px;
+  }
+  .setup-grid {
+    gap: 28px;
+  }
+  .setup-mode-row {
+    flex-direction: column !important;
+  }
+}
 </style>
 </head>
 <body>
@@ -658,6 +986,26 @@ button { font-family: inherit; }
       <div class="field-group">
         <label class="field-label" for="su-pin">Host PIN <span>— lets you reopen this console later</span></label>
         <input id="su-pin" class="input-text" type="password" placeholder="At least 4 characters" autocomplete="new-password">
+      </div>
+
+      <div class="field-group">
+        <label class="field-label">Game Mode <span>— choose the event format</span></label>
+        <div class="setup-mode-row" style="display:flex; gap:10px;">
+          <label style="flex:1; display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--border2); border-radius:12px; background:var(--card2); cursor:pointer;">
+            <input type="radio" name="su-mode" value="classic" checked>
+            <div>
+              <div style="font-weight:700; font-size:14px; color:var(--text);">Classic Party</div>
+              <div style="font-size:12px; color:var(--dim);">Phones line up</div>
+            </div>
+          </label>
+          <label style="flex:1; display:flex; align-items:center; gap:10px; padding:12px 14px; border:1px solid var(--border2); border-radius:12px; background:var(--card2); cursor:pointer;">
+            <input type="radio" name="su-mode" value="competitive">
+            <div>
+              <div style="font-weight:700; font-size:14px; color:var(--text);">Competitive Arena</div>
+              <div style="font-size:12px; color:var(--dim);">Buzzer + Scoreboard</div>
+            </div>
+          </label>
+        </div>
       </div>
 
       <div class="field-group">
@@ -736,12 +1084,23 @@ button { font-family: inherit; }
   <!-- Top Nav -->
   <header class="dash-nav">
     <div class="nav-left">
-      <div class="brand-dots" id="dots-dash"></div>
-      <div class="brand-name">scramble</div>
-      <div class="brand-badge">host console</div>
-      <div style="width:1px; height:20px; background:var(--border2); margin:0 4px;"></div>
-      <span style="font-size:13px; color:var(--dim);">Room</span>
-      <span class="room-badge" id="d-code">—</span>
+      <div class="nav-header-row">
+        <div class="nav-brand">
+          <div class="brand-dots" id="dots-dash"></div>
+          <div class="brand-name">scramble</div>
+          <div class="brand-badge">host console</div>
+        </div>
+        <div class="nav-sep"></div>
+        <div class="nav-room">
+          <span class="room-label">Room</span>
+          <span class="room-badge" id="d-code">—</span>
+        </div>
+      </div>
+      <div class="nav-sep nav-sep-mode"></div>
+      <div class="mode-tabs">
+        <button class="mode-tab active" id="tab-classic" type="button">Classic Party</button>
+        <button class="mode-tab" id="tab-competitive" type="button">Competitive Arena</button>
+      </div>
     </div>
     <div class="nav-right">
       <div class="pill-status">
@@ -790,6 +1149,38 @@ button { font-family: inherit; }
 
     <!-- Left Main Column -->
     <div class="main-col">
+
+      <!-- Competitive Arena Box (Visible only in Competitive Mode) -->
+      <div class="c-box hidden" id="card-competitive" style="border-color:#4a90f0; background:linear-gradient(180deg, #131d2a 0%, #151a20 100%);">
+        <div class="c-box-header">
+          <div class="c-box-title" style="color:#7ab0ff;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="7"></circle><polyline points="8.21 13.89 7 23 12 20 17 23 15.79 13.88"></polyline></svg>
+            <span>Competitive Arena Status</span>
+          </div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <div style="display:flex; align-items:center; gap:6px; font-size:12px; color:var(--dim); background:var(--card2); border:1px solid var(--border2); border-radius:8px; padding:3px 8px;">
+              <span>Max/team:</span>
+              <button id="b-limit-minus" type="button" style="width:20px; height:20px; border-radius:4px; border:1px solid var(--border2); background:transparent; color:var(--text); cursor:pointer;">−</button>
+              <span id="limit-val" style="font-weight:700; color:var(--text); min-width:14px; text-align:center;">4</span>
+              <button id="b-limit-plus" type="button" style="width:20px; height:20px; border-radius:4px; border:1px solid var(--border2); background:transparent; color:var(--text); cursor:pointer;">+</button>
+            </div>
+            <button id="b-reset-scores" class="btn-subtle" style="font-size:12px; height:28px; padding:0 10px;">Reset Scores</button>
+          </div>
+        </div>
+
+        <div id="comp-buzzer-status" style="padding:14px 18px; border-radius:14px; background:rgba(0,0,0,0.35); border:1px solid var(--border2); display:flex; align-items:center; gap:14px;">
+          <div id="comp-buzzer-icon" style="font-size:26px;">🔔</div>
+          <div>
+            <div id="comp-buzzer-title" style="font-size:15px; font-weight:700;">Waiting for round to start...</div>
+            <div id="comp-buzzer-desc" style="font-size:13px; color:var(--dim); line-height:1.4;">Any player on a team can type their answer on their phone to solve the round.</div>
+          </div>
+        </div>
+
+        <div>
+          <div style="font-size:12px; font-weight:700; color:var(--dim); text-transform:uppercase; letter-spacing:0.08em; margin-bottom:10px;">Live Team Standings &amp; Score Adjustments</div>
+          <div id="comp-scores-list" style="display:flex; flex-direction:column; gap:8px;"></div>
+        </div>
+      </div>
 
       <!-- On Projector Now Card -->
       <div class="c-box">
@@ -1035,11 +1426,13 @@ async function boot(){
 $("b-setup").onclick=async()=>{
   const p=$("su-pin").value.trim();
   const answers=$("su-ans").value.split("\n").map(s=>s.trim()).filter(Boolean);
+  const modeEl = document.querySelector('input[name="su-mode"]:checked');
+  const game_mode = modeEl ? modeEl.value : "classic";
   if(p.length<4)return err("e-setup","PIN must be at least 4 characters.");
   err("e-setup");
   try{
     const r=await fetch("/api/room",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({pin:p,answers})});
+      body:JSON.stringify({pin:p,answers,game_mode})});
     const d=await r.json();
     if(!r.ok)throw new Error(d.detail||"Couldn't open the room.");
     pin=p;
@@ -1127,6 +1520,14 @@ function renderAll(){
   // Header & Status
   $("d-code").textContent = hs.join_code;
   $("join-url-pill").textContent = hs.join_url.replace(/^https?:\/\//, "");
+
+  // Game Mode handling
+  const isComp = hs.game_mode === "competitive";
+  $("tab-classic").classList.toggle("active", !isComp);
+  $("tab-competitive").classList.toggle("active", isComp);
+  $("card-competitive").classList.toggle("hidden", !isComp);
+  $("card-teams").classList.toggle("hidden", isComp);
+  if(isComp) renderCompetitiveArena();
 
   // Stepper highlights
   $("st-1").className = "step-item " + (!live ? "active" : "done");
@@ -1397,6 +1798,137 @@ $("b-copy-url").onclick=()=>{
     $("b-copy-url").textContent="Copied!";
     setTimeout(()=>{$("b-copy-url").textContent="Copy";}, 1800);
   }
+};
+
+/* ── Competitive Mode Functions & Handlers ── */
+function renderCompetitiveArena(){
+  if(!hs) return;
+  const cur = hs.current_round;
+  const live = hs.phase === "live";
+  const scores = hs.scores || {};
+  const winner = hs.round_winner;
+
+  const bTitle = $("comp-buzzer-title");
+  const bDesc = $("comp-buzzer-desc");
+  const bIcon = $("comp-buzzer-icon");
+
+  if(winner){
+    bIcon.textContent = "🏆";
+    bTitle.textContent = `Round ${winner.round + 1} Solved by Team ${winner.team_name}!`;
+    bDesc.innerHTML = `Winner: <b>${esc(winner.player_name)}</b> · Solved word: <b>"${esc(winner.answer)}"</b>. Advance to next round when ready.`;
+    $("comp-buzzer-status").style.borderColor = "#43c26a";
+    $("comp-buzzer-status").style.background = "rgba(67, 194, 106, 0.15)";
+  } else if(live && cur >= 0){
+    bIcon.textContent = "🔔";
+    bTitle.textContent = `Round ${cur + 1} Active — Buzzers Open`;
+    bDesc.textContent = `Players can type the answer into their phone drawer. First correct submission wins the round!`;
+    $("comp-buzzer-status").style.borderColor = "var(--border2)";
+    $("comp-buzzer-status").style.background = "rgba(0,0,0,0.35)";
+  } else {
+    bIcon.textContent = "⏳";
+    bTitle.textContent = "Lobby / Team Assembly Phase";
+    bDesc.textContent = `Players can choose their team colors in the lobby. Answer buzzers activate during active rounds.`;
+    $("comp-buzzer-status").style.borderColor = "var(--border2)";
+    $("comp-buzzer-status").style.background = "rgba(0,0,0,0.35)";
+  }
+
+  // Render scores list
+  const palette = hs.palette || [];
+  const customTeams = hs.custom_teams || [];
+  const teamList = customTeams.length ? customTeams : Array.from({length: hs.team_count}).map((_, i) => ({
+    idx: i,
+    name: (palette[i % palette.length] || {}).name || ("Team " + (i + 1)),
+    color_idx: i,
+    hex: (palette[i % palette.length] || {}).hex || "#4a90f0",
+  }));
+
+  if ($("limit-val")) $("limit-val").textContent = hs.max_team_members || 4;
+
+  let html = "";
+  teamList.forEach(t => {
+    const ci = t.color_idx;
+    const pts = scores[String(ci)] || 0;
+    const members = (hs.players || []).filter(p => p.color_idx === ci);
+    const mNames = members.map(m => m.name).join(", ");
+    html += `
+      <div class="score-row">
+        <div style="display:flex; align-items:center; gap:10px; min-width:0;">
+          <div style="width:16px; height:16px; border-radius:50%; background:${t.hex}; border:1px solid rgba(255,255,255,0.3); flex-shrink:0;"></div>
+          <div style="min-width:0; overflow:hidden;">
+            <div style="font-weight:700; font-size:14px; color:${t.hex}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(t.name)}</div>
+            <div style="font-size:12px; color:var(--dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${members.length} member(s)${mNames ? ` · ${esc(mNames)}` : ''}</div>
+          </div>
+        </div>
+        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          <button class="score-btn" onclick="adjustScore(${ci}, -1)" title="Subtract 1 pt">−</button>
+          <div class="score-pill">${pts} <span style="font-size:11px; color:var(--dim); font-weight:400;">pts</span></div>
+          <button class="score-btn" onclick="adjustScore(${ci}, 1)" title="Add 1 pt">+</button>
+        </div>
+      </div>
+    `;
+  });
+  $("comp-scores-list").innerHTML = html || `<div style="font-size:13px; color:var(--dim); text-align:center; padding:12px;">No teams created yet. Attendees will create teams in the lobby.</div>`;
+}
+
+$("b-limit-minus").onclick = async () => {
+  const cur = hs.max_team_members || 4;
+  if (cur <= 1) return;
+  try {
+    await api("/api/host/team_limit", {method:"POST", body:JSON.stringify({max_team_members: cur - 1})});
+    await refresh();
+  } catch(e) {}
+};
+$("b-limit-plus").onclick = async () => {
+  const cur = hs.max_team_members || 4;
+  if (cur >= 16) return;
+  try {
+    await api("/api/host/team_limit", {method:"POST", body:JSON.stringify({max_team_members: cur + 1})});
+    await refresh();
+  } catch(e) {}
+};
+
+window.adjustScore = async(color_idx, delta)=>{
+  try {
+    const res = await api("/api/host/scores", {
+      method: "POST",
+      body: JSON.stringify({ color_idx, delta })
+    });
+    if(res.ok && hs){
+      hs.scores = res.scores;
+      renderCompetitiveArena();
+    }
+  } catch(e){
+    alert("Could not update score: " + e.message);
+  }
+};
+
+$("tab-classic").onclick = async () => {
+  if (!hs || hs.game_mode === "classic") return;
+  try {
+    await api("/api/host/mode", { method: "POST", body: JSON.stringify({ mode: "classic" }) });
+    hs.game_mode = "classic";
+    renderAll();
+  } catch(e) { alert(e.message); }
+};
+
+$("tab-competitive").onclick = async () => {
+  if (!hs || hs.game_mode === "competitive") return;
+  try {
+    await api("/api/host/mode", { method: "POST", body: JSON.stringify({ mode: "competitive" }) });
+    hs.game_mode = "competitive";
+    renderAll();
+  } catch(e) { alert(e.message); }
+};
+
+$("b-reset-scores").onclick = async () => {
+  if (!confirm("Reset all team scores to 0?")) return;
+  try {
+    for (let i = 0; i < hs.team_count; i++) {
+      await api("/api/host/scores", { method: "POST", body: JSON.stringify({ color_idx: i, score: 0 }) });
+    }
+    hs.scores = {};
+    renderCompetitiveArena();
+  } catch(e) { alert(e.message); }
 };
 
 boot();
