@@ -90,10 +90,38 @@ label{font-size:14px;font-weight:700;color:var(--dim);display:block;margin-botto
 .team-top-badge-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
 .team-top-badge-sep{opacity:0.35;margin:0 2px;font-weight:400}
 .team-top-badge-round{font-weight:600;opacity:0.9}
-@media (orientation: landscape) {
-  .team-top-badge{top:calc(6px + env(safe-area-inset-top,0px));padding:4px 12px;font-size:11px;gap:5px}
-  .infolayer{top:calc(36px + env(safe-area-inset-top,0px));gap:4px}
-  .infolayer .hint{padding:3px 10px;font-size:11px}
+.btn-switch-team {
+  background: rgba(255,255,255,0.14);
+  border: 1px solid rgba(255,255,255,0.28);
+  color: #ffffff;
+  padding: 8px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(8px);
+  margin-top: 8px;
+  transition: all 0.15s ease;
+}
+.btn-switch-team:hover {
+  background: rgba(255,255,255,0.25);
+  border-color: rgba(255,255,255,0.45);
+}
+.btn-drawer-switch {
+  background: rgba(0,0,0,0.55);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: #ffffff;
+  padding: 3px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  backdrop-filter: blur(6px);
+  transition: all 0.15s ease;
+}
+.btn-drawer-switch:hover {
+  background: rgba(255,255,255,0.2);
+  border-color: rgba(255,255,255,0.5);
 }
 </style>
 </head>
@@ -177,6 +205,7 @@ label{font-size:14px;font-weight:700;color:var(--dim);display:block;margin-botto
     <div class="bigname" id="tm-color" style="font-size:clamp(28px,7vw,44px)"></div>
     <p class="mates" id="tm-mates"></p>
     <p class="subtle" id="tm-copy">Gather your team. Letters land here when the host starts the round.</p>
+    <button id="b-leave-team-stage" class="btn-switch-team hidden" onclick="leaveTeamAndSwitch(event)">Wrong team? Switch team</button>
   </div>
 
   <!-- letters -->
@@ -193,7 +222,10 @@ label{font-size:14px;font-weight:700;color:var(--dim);display:block;margin-botto
   <div id="comp-winner-banner" class="comp-winner-banner hidden">
     <span id="comp-winner-msg">🏆 Round won!</span>
   </div>
-  <div id="comp-drawer-team-pill" style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.9); background:rgba(0,0,0,0.55); padding:3px 12px; border-radius:999px; backdrop-filter:blur(6px);"></div>
+  <div style="display:flex; align-items:center; justify-content:space-between; width:100%; max-width:440px; padding:0 4px;">
+    <div id="comp-drawer-team-pill" style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.9); background:rgba(0,0,0,0.55); padding:3px 12px; border-radius:999px; backdrop-filter:blur(6px);"></div>
+    <button id="b-drawer-switch-team" type="button" class="btn-drawer-switch" onclick="leaveTeamAndSwitch(event)">Switch team</button>
+  </div>
   <form id="comp-answer-form" style="display:flex; gap:8px; width:100%;" onsubmit="submitCompAnswer(event)">
     <input id="comp-answer-input" class="field" style="border-radius:14px; background:rgba(21, 27, 35, 0.92); backdrop-filter:blur(8px); border-color:rgba(255,255,255,0.25); font-size:16px;" placeholder="Type team answer..." autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
     <button id="comp-answer-submit" type="submit" class="btn" style="width:auto; padding:0 22px; border-radius:14px; white-space:nowrap; background:#fff; color:#0d1117;">Buzz</button>
@@ -603,6 +635,9 @@ function render(st){
     $("tm-color").textContent=(teamDisplayName||col.name).toUpperCase();
     $("tm-mates").textContent=st.you.teammates.length?("With: "+st.you.teammates.join(" · ")):"";
     $("tm-copy").textContent="Gather with your team. Your piece of the answer lands here when the host starts the round.";
+    if($("b-leave-team-stage")){
+      $("b-leave-team-stage").classList.toggle("hidden", !isComp);
+    }
     return;
   }
 
@@ -615,7 +650,7 @@ function render(st){
 
   if(!st.round.in_round){ // joined after this round was dealt
     const joinMsg = isComp
-      ? `You joined <b>${esc(teamDisplayName)}</b>!<br><span style="font-size:14px;opacity:0.85;display:inline-block;margin-top:6px;">Letters arrive next round · Help your team buzz!</span>`
+      ? `You joined <b>${esc(teamDisplayName)}</b>!<br><span style="font-size:14px;opacity:0.85;display:inline-block;margin-top:6px;">Letters arrive next round · Help your team buzz!</span><br><button class="btn-switch-team" style="margin-top:12px; display:inline-block;" onclick="leaveTeamAndSwitch(event)">Wrong team? Switch team</button>`
       : `You're on team ${st.you.team_number} — you join the next deal. Help them solve!`;
     $("tiles").innerHTML=`<div class="tile" style="background:${overlay};font-size:clamp(18px,5vw,26px);padding:.7em 1em;max-width:380px;line-height:1.4;">${joinMsg}</div>`;
     $("rd-hint").textContent="";
@@ -824,6 +859,12 @@ window.chooseTeam = async (color_idx) => {
   } catch(e) {
     alert(e.message);
   }
+};
+
+window.leaveTeamAndSwitch = async (e) => {
+  if (e) e.stopPropagation();
+  if (!confirm("Are you sure you want to leave this team and switch?")) return;
+  await chooseTeam(-1);
 };
 
 let answerCooldownUntil = 0;

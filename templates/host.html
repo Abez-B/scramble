@@ -206,22 +206,39 @@ button { font-family: inherit; }
   outline: none;
 }
 .btn-primary {
-  height: 56px;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 24px;
   border: none;
   border-radius: 14px;
   background: var(--text);
   color: var(--bg);
-  font-size: 17px;
+  font-family: inherit;
+  font-size: 16px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
-  transition: opacity 0.15s;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+  transition: all 0.15s ease;
 }
-.btn-primary:active { opacity: 0.85; }
-.btn-primary:disabled { opacity: 0.4; cursor: default; }
+.btn-primary:hover {
+  opacity: 0.95;
+  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+}
+.btn-primary:active {
+  transform: translateY(0);
+  opacity: 0.85;
+}
+.btn-primary:disabled {
+  opacity: 0.4;
+  cursor: default;
+  transform: none;
+  box-shadow: none;
+}
 
 .guide-box {
   display: flex;
@@ -1222,10 +1239,10 @@ button { font-family: inherit; }
           <!-- Lobby button -->
           <div id="btn-assign-wrap">
             <button class="btn-primary" id="b-assign">
-              <span>Assign colors &amp; go live</span>
+              <span id="b-assign-text">Assign colors &amp; go live</span>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
             </button>
-            <div style="font-size:13px; color:var(--dim); text-align:center; margin-top:8px;">Next: phones show their team color. No letters are dealt until you start Round 1.</div>
+            <div style="font-size:13px; color:var(--dim); text-align:center; margin-top:8px;" id="b-assign-sub">Next: phones show their team color. No letters are dealt until you start Round 1.</div>
             <div class="err-box" id="e-assign" style="margin-top:8px;"></div>
           </div>
 
@@ -1528,6 +1545,16 @@ function renderAll(){
   $("card-competitive").classList.toggle("hidden", !isComp);
   $("card-teams").classList.toggle("hidden", isComp);
   if(isComp) renderCompetitiveArena();
+
+  // Mode-aware action button naming
+  if($("b-assign-text")){
+    $("b-assign-text").textContent = isComp ? "Start Match & Go Live" : "Assign colors & go live";
+  }
+  if($("b-assign-sub")){
+    $("b-assign-sub").textContent = isComp
+      ? "Next: lock in teams. Round 1 buzzer race starts when you deal Round 1."
+      : "Next: phones show their team color. No letters are dealt until you start Round 1.";
+  }
 
   // Stepper highlights
   $("st-1").className = "step-item " + (!live ? "active" : "done");
