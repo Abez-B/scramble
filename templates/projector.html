@@ -728,6 +728,10 @@ function render(){
   $("latecode").textContent = state.join_code;
   if($("qrimg").getAttribute("src") !== qrSrc) $("qrimg").src = qrSrc;
   if($("miniqrimg").getAttribute("src") !== qrSrc) $("miniqrimg").src = qrSrc;
+  if(state.join_url && $("jurl-clean")){
+    const cleanUrl = state.join_url.replace(/^https?:\/\//, "").replace(/\/\?.*$/, "");
+    $("jurl-clean").textContent = cleanUrl;
+  }
 
   const isComp = state.game_mode === "competitive";
 

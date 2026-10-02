@@ -105,7 +105,15 @@ def hash_pin(pin: str) -> str:
 
 
 def _join_url(request: Request, room: dict) -> str:
-    base = os.getenv("BASE_URL") or "https://scrambles.fly.dev"
+    base = os.getenv("BASE_URL")
+    if not base:
+        host = request.headers.get("host", "").lower() if request else ""
+        if "scrambles.fly.dev" in host:
+            base = "https://scrambles.fly.dev"
+        elif request:
+            base = str(request.base_url).rstrip("/")
+        else:
+            base = "https://scrambles.fly.dev"
     return f"{base.rstrip('/')}/?c={room['join_code']}"
 
 
