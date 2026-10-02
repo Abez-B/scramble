@@ -200,6 +200,54 @@ def _redeal_active_round_if_live(room: dict):
         _notify("REDEAL", round=cur)
 
 
+def _calc_winner_summary(room: dict) -> dict | None:
+    if not room or room.get("phase") != "finished":
+        return None
+    scores = room.get("scores", {})
+    custom_teams = room.get("custom_teams", [])
+    players = _mem.get("players", [])
+    team_count = room.get("team_count", 1)
+
+    team_indices = set()
+    for ct in custom_teams:
+        team_indices.add(ct["color_idx"])
+    for p in players:
+        if p["color_idx"] >= 0:
+            team_indices.add(p["color_idx"])
+    for i in range(team_count):
+        team_indices.add(i)
+
+    team_list = []
+    for ci in sorted(team_indices):
+        ct = next((t for t in custom_teams if t["color_idx"] == ci), None)
+        palette_item = PALETTE[ci % len(PALETTE)]
+        name = ct["name"] if ct else ("Team " + str(ci + 1))
+        hex_col = ct.get("hex", palette_item["hex"]) if ct else palette_item["hex"]
+        fg_col = ct.get("fg", palette_item.get("fg", "#ffffff")) if ct else palette_item.get("fg", "#ffffff")
+        pts = int(scores.get(str(ci), 0))
+        members = [p["name"] for p in players if p["color_idx"] == ci]
+        team_list.append({
+            "idx": ci,
+            "color_idx": ci,
+            "name": name,
+            "hex": hex_col,
+            "fg": fg_col,
+            "score": pts,
+            "members": members,
+        })
+
+    team_list.sort(key=lambda t: (t["score"], len(t["members"])), reverse=True)
+    top_score = team_list[0]["score"] if team_list else 0
+    winners = [t for t in team_list if t["score"] == top_score] if team_list else []
+    is_tie = len(winners) > 1
+
+    return {
+        "top_score": top_score,
+        "is_tie": is_tie,
+        "winners": winners,
+        "leaderboard": team_list,
+    }
+
 
 def _etag_response(request: Request, data: dict, extra_headers: dict | None = None):
     """Build a JSONResponse with ETag. Returns 304 if the client already has
@@ -381,6 +429,7 @@ async def projector_state(request: Request):
         "game_mode": room.get("game_mode", "classic"),
         "scores": room.get("scores", {}),
         "round_winner": room.get("round_winner"),
+        "winner_summary": _calc_winner_summary(room),
         "custom_teams": room.get("custom_teams", []),
         "max_team_members": room.get("max_team_members", 4),
         "current_round": room["current_round"],
@@ -476,6 +525,7 @@ async def state(pid: str = "", request: Request = None):
         "game_mode": room.get("game_mode", "classic"),
         "scores": room.get("scores", {}),
         "round_winner": room.get("round_winner"),
+        "winner_summary": _calc_winner_summary(room),
         "allow_team_choice": room.get("allow_team_choice", True),
         "custom_teams": room.get("custom_teams", []),
         "max_team_members": room.get("max_team_members", 4),
@@ -805,6 +855,7 @@ async def host_state(request: Request, x_host_pin: str | None = Header(default=N
         "game_mode": room.get("game_mode", "classic"),
         "scores": room.get("scores", {}),
         "round_winner": room.get("round_winner"),
+        "winner_summary": _calc_winner_summary(room),
         "allow_team_choice": room.get("allow_team_choice", True),
         "custom_teams": room.get("custom_teams", []),
         "max_team_members": room.get("max_team_members", 4),
@@ -1008,7 +1059,7 @@ async def assign_colors(x_host_pin: str | None = Header(default=None)):
 async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=None)):
     room = _require_room()
     _require_host(x_host_pin, room)
-    if room["phase"] != "live":
+    if room["phase"] not in ("live", "finished"):
         raise HTTPException(409, "Assign colors first.")
     answers = _mem["answers"]
     cur = room["current_round"]
@@ -1017,13 +1068,34 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
     room["round_winner"] = None
     _persist(store.set_round_winner, None)
 
+    if body.action in ("finish", "end"):
+        room["phase"] = "finished"
+        _persist(store.set_phase, "finished")
+        _bump()
+        _notify("GAME_END", phase="finished")
+        return {"ok": True, "phase": "finished"}
+
+    if body.action == "resume":
+        room["phase"] = "live"
+        _persist(store.set_phase, "live")
+        _bump()
+        _notify("NEXT", round=room["current_round"])
+        return {"ok": True, "phase": "live"}
+
     if body.action == "next":
+        if room["phase"] == "finished":
+            raise HTTPException(400, "Game is finished.")
         nxt = cur + 1
         if nxt >= len(answers):
-            raise HTTPException(409, "No more answers — add a few more below.")
+            # Last round completed: finish game and trigger celebration
+            room["phase"] = "finished"
+            _persist(store.set_phase, "finished")
+            _bump()
+            _notify("GAME_END", phase="finished")
+            return {"ok": True, "phase": "finished"}
         if nxt not in _mem["rounds"]:
             snap = make_snapshot(nxt, answers[nxt], _mem["players"],
-                                 room["edge_marks"], room["allow_flips"])
+                                 room.get("edge_marks", True), room.get("allow_flips", True))
             _mem["rounds"][nxt] = snap
             _persist(store.save_round, room["session_id"], nxt, snap, snap["made_at"])
         room["current_round"] = nxt
@@ -1031,6 +1103,9 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
         _bump()
         _notify("NEXT", round=nxt)
     elif body.action == "back":
+        if room["phase"] == "finished":
+            room["phase"] = "live"
+            _persist(store.set_phase, "live")
         room["current_round"] = max(-1, cur - 1)
         _persist(store.set_current_round, room["current_round"])
         _bump()
@@ -1039,7 +1114,7 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
         if cur < 0:
             raise HTTPException(400, "No active round to re-deal.")
         snap = make_snapshot(cur, answers[cur], _mem["players"],
-                             room["edge_marks"], room["allow_flips"])
+                             room.get("edge_marks", True), room.get("allow_flips", True))
         _mem["rounds"][cur] = snap
         _persist(store.save_round, room["session_id"], cur, snap, snap["made_at"])
         _bump()
@@ -1048,6 +1123,21 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
         raise HTTPException(400, "Unknown action.")
 
     return {"ok": True}
+
+
+@app.post("/api/host/finish")
+async def finish_game(x_host_pin: str | None = Header(default=None)):
+    room = _require_room()
+    _require_host(x_host_pin, room)
+    if room["phase"] not in ("live", "finished"):
+        raise HTTPException(400, "Game is not live.")
+    room["phase"] = "finished"
+    room["round_winner"] = None
+    _persist(store.set_round_winner, None)
+    _persist(store.set_phase, "finished")
+    _bump()
+    _notify("GAME_END", phase="finished")
+    return {"ok": True, "phase": "finished"}
 
 
 @app.post("/api/host/lobby")

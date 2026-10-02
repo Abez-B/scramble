@@ -1257,7 +1257,10 @@ button { font-family: inherit; }
             </div>
             <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
               <div style="font-size:13px; color:var(--dim);" id="round-deal-note">Deals letters to every phone. Puzzle mode is baked in at this moment.</div>
-              <button id="b-redeal" style="height:32px; padding:0 12px; border-radius:8px; border:1px solid var(--border2); background:transparent; color:var(--dim); font-size:13px; font-weight:600; cursor:pointer;">Re-deal current round</button>
+              <div style="display:flex; gap:8px;">
+                <button id="b-redeal" style="height:32px; padding:0 12px; border-radius:8px; border:1px solid var(--border2); background:transparent; color:var(--dim); font-size:13px; font-weight:600; cursor:pointer;">Re-deal</button>
+                <button id="b-finish-game" type="button" style="height:32px; padding:0 14px; border-radius:8px; border:1px solid rgba(245, 181, 68, 0.45); background:rgba(245, 181, 68, 0.12); color:#f5b544; font-size:13px; font-weight:700; cursor:pointer;">Finish Game 🏆</button>
+              </div>
             </div>
             <div class="err-box" id="e-round"></div>
           </div>
@@ -1531,7 +1534,8 @@ $("b-open-proj").onclick=()=>{
 /* ── Render Functionality ── */
 function renderAll(){
   if(!hs)return;
-  const live = hs.phase === "live";
+  const live = hs.phase === "live" || hs.phase === "finished";
+  const isFinished = hs.phase === "finished";
   const cur = hs.current_round;
 
   // Header & Status
@@ -1620,22 +1624,44 @@ function renderAll(){
 
   // Live round controls
   if(live){
-    if(cur < 0){
-      $("stage-desc").textContent = "Team screen";
-      $("live-action-title").textContent = "Everyone has a color. Ask them to find their team.";
-      $("live-action-sub").textContent = "When teams are seated, deal Round 1 — every phone gets its letters at once.";
-      $("b-next-label").textContent = "Deal Round 1";
-      $("b-back").disabled = true;
-      $("b-redeal").disabled = true;
-      $("round-deal-note").textContent = `Deals letters for answer 1 of ${hs.answers.length} to every phone.`;
-    }else{
-      $("stage-desc").textContent = `Round ${cur+1} of ${hs.answers.length}`;
-      $("live-action-title").textContent = `Round ${cur+1} is active: "${hs.answers[cur]}"`;
-      $("live-action-sub").textContent = "Players are unjumbling their pieces together right now.";
-      $("b-next-label").textContent = cur + 1 >= hs.answers.length ? "Finish game" : `Deal Round ${cur+2}`;
+    if(isFinished){
+      $("stage-desc").textContent = "🏆 Tournament Finished";
+      const wSum = hs.winner_summary;
+      const champ = wSum && wSum.winners && wSum.winners[0];
+      const champName = champ ? champ.name : "Winner";
+      const champPts = champ ? champ.score : 0;
+      $("live-action-title").textContent = (wSum && wSum.is_tie)
+        ? `Co-Champions Tie with ${wSum.top_score} pts!`
+        : `🏆 Champion Declared: ${champName} (${champPts} pts)!`;
+      $("live-action-sub").textContent = "Celebratory winner announcement and confetti are active on the projector screen.";
+      $("b-next").classList.add("hidden");
+      $("b-redeal").classList.add("hidden");
+      if($("b-finish-game")) $("b-finish-game").classList.add("hidden");
+      $("b-back").textContent = "← Resume Game";
       $("b-back").disabled = false;
-      $("b-redeal").disabled = false;
-      $("round-deal-note").textContent = `Next will advance to answer ${cur+2} of ${hs.answers.length}.`;
+      $("round-deal-note").textContent = "Tap 'End game → back to lobby' below when you are ready to start a fresh game.";
+    } else {
+      $("b-next").classList.remove("hidden");
+      $("b-redeal").classList.remove("hidden");
+      if($("b-finish-game")) $("b-finish-game").classList.remove("hidden");
+      $("b-back").textContent = "← Back";
+      if(cur < 0){
+        $("stage-desc").textContent = "Team screen";
+        $("live-action-title").textContent = "Everyone has a color. Ask them to find their team.";
+        $("live-action-sub").textContent = "When teams are seated, deal Round 1 — every phone gets its letters at once.";
+        $("b-next-label").textContent = "Deal Round 1";
+        $("b-back").disabled = true;
+        $("b-redeal").disabled = true;
+        $("round-deal-note").textContent = `Deals letters for answer 1 of ${hs.answers.length} to every phone.`;
+      }else{
+        $("stage-desc").textContent = `Round ${cur+1} of ${hs.answers.length}`;
+        $("live-action-title").textContent = `Round ${cur+1} is active: "${hs.answers[cur]}"`;
+        $("live-action-sub").textContent = "Players are unjumbling their pieces together right now.";
+        $("b-next-label").textContent = cur + 1 >= hs.answers.length ? "Finish game" : `Deal Round ${cur+2}`;
+        $("b-back").disabled = false;
+        $("b-redeal").disabled = false;
+        $("round-deal-note").textContent = `Next will advance to answer ${cur+2} of ${hs.answers.length}.`;
+      }
     }
 
     // Team pills under preview
@@ -1782,6 +1808,10 @@ $("b-assign").onclick=async()=>{
 async function roundAction(action){
   err("e-round");
   try{
+    if(action === "next" && hs && hs.current_round + 1 >= hs.answers.length){
+      if(!confirm("All rounds completed! Finish the game and declare the winner on the projector screen?")) return;
+      action = "finish";
+    }
     await api("/api/host/round",{method:"POST",body:JSON.stringify({action})});
     await refresh();
   }catch(e){
@@ -1789,8 +1819,14 @@ async function roundAction(action){
   }
 }
 $("b-next").onclick=()=>roundAction("next");
-$("b-back").onclick=()=>roundAction("back");
+$("b-back").onclick=()=>roundAction(hs && hs.phase === "finished" ? "resume" : "back");
 $("b-redeal").onclick=()=>roundAction("redeal");
+if($("b-finish-game")){
+  $("b-finish-game").onclick=async()=>{
+    if(!confirm("Finish the game now and declare the celebratory winner on the projector screen?")) return;
+    await roundAction("finish");
+  };
+}
 
 $("b-lobby").onclick=async()=>{
   if(!confirm("End the game and send everyone back to the lobby? (Players and answers are kept.)"))return;

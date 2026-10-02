@@ -324,3 +324,103 @@ def test_competitive_switch_teams_mid_round_redeals():
     # All letters in PLANET covered
     assert "".join(sorted("".join(combined_beta))) == "".join(sorted("PLANET"))
 
+
+def test_finish_game_celebratory_winner_declare():
+    client = TestClient(app)
+    pin = "5678"
+
+    # 1. Open room in competitive mode with 2 rounds
+    r = client.post("/api/room", json={
+        "pin": pin,
+        "answers": ["EARTH", "MARS"],
+        "game_mode": "competitive"
+    })
+    join_code = r.json()["join_code"]
+    headers = {"X-Host-Pin": pin}
+
+    # 2. Join 2 teams: Eagles (p1, p2) and Hawks (p3)
+    client.post("/api/join", json={"code": join_code, "pid": "p-eagle1", "name": "Eagle1"})
+    client.post("/api/join", json={"code": join_code, "pid": "p-eagle2", "name": "Eagle2"})
+    client.post("/api/join", json={"code": join_code, "pid": "p-hawk1", "name": "Hawk1"})
+
+    r_e = client.post("/api/team/create", json={"code": join_code, "pid": "p-eagle1", "name": "Eagles"})
+    e_idx = r_e.json()["color_idx"]
+    client.post("/api/team/select", json={"code": join_code, "pid": "p-eagle2", "color_idx": e_idx})
+
+    r_h = client.post("/api/team/create", json={"code": join_code, "pid": "p-hawk1", "name": "Hawks"})
+    h_idx = r_h.json()["color_idx"]
+
+    # 3. Start game & deal Round 0 ("EARTH")
+    client.post("/api/host/assign", headers=headers)
+    client.post("/api/host/round", json={"action": "next"}, headers=headers)
+
+    # Eagles win Round 0
+    res_sub1 = client.post("/api/round/submit", json={"code": join_code, "pid": "p-eagle1", "guess": "EARTH"})
+    assert res_sub1.status_code == 200
+    assert res_sub1.json()["correct"] is True
+
+    # Deal Round 1 ("MARS")
+    client.post("/api/host/round", json={"action": "next"}, headers=headers)
+
+    # Eagles win Round 1 as well -> Eagles 2, Hawks 0
+    res_sub2 = client.post("/api/round/submit", json={"code": join_code, "pid": "p-eagle2", "guess": "MARS"})
+    assert res_sub2.status_code == 200
+    assert res_sub2.json()["correct"] is True
+
+    # 4. Host hits next after Round 1 (last round) -> triggers finish game!
+    res_finish = client.post("/api/host/round", json={"action": "next"}, headers=headers)
+    assert res_finish.status_code == 200
+    assert res_finish.json()["phase"] == "finished"
+
+    # 5. Verify Projector state receives celebratory winner summary
+    proj = client.get("/api/projector/state").json()
+    assert proj["phase"] == "finished"
+    assert proj["winner_summary"] is not None
+    wSum = proj["winner_summary"]
+    assert wSum["top_score"] == 2
+    assert wSum["is_tie"] is False
+    assert len(wSum["winners"]) == 1
+    assert wSum["winners"][0]["name"] == "Eagles"
+    assert wSum["winners"][0]["score"] == 2
+    assert "Eagle1" in wSum["winners"][0]["members"]
+    assert "Eagle2" in wSum["winners"][0]["members"]
+
+    # Verify Leaderboard ordering
+    assert len(wSum["leaderboard"]) == 2
+    assert wSum["leaderboard"][0]["name"] == "Eagles"
+    assert wSum["leaderboard"][0]["score"] == 2
+    assert wSum["leaderboard"][1]["name"] == "Hawks"
+    assert wSum["leaderboard"][1]["score"] == 0
+
+    # 6. Verify Projector HTML includes celebratory elements
+    r_proj = client.get("/projector")
+    assert r_proj.status_code == 200
+    assert "s-finished" in r_proj.text
+    assert "confetti-canvas" in r_proj.text
+    assert "fin-winner-headline" in r_proj.text
+    assert "fin-leaderboard" in r_proj.text
+
+    # 7. Verify Mobile Player state & HTML
+    r_mob = client.get("/api/state?pid=p-eagle1").json()
+    assert r_mob["phase"] == "finished"
+    assert r_mob["winner_summary"]["winners"][0]["name"] == "Eagles"
+
+    r_mob_page = client.get("/")
+    assert "s-finished" in r_mob_page.text
+    assert "fin-mob-title" in r_mob_page.text
+
+    # 8. Verify host can resume game if desired
+    res_resume = client.post("/api/host/round", json={"action": "resume"}, headers=headers)
+    assert res_resume.status_code == 200
+    assert res_resume.json()["phase"] == "live"
+
+    # 9. Verify dedicated finish endpoint /api/host/finish
+    res_fin_direct = client.post("/api/host/finish", headers=headers)
+    assert res_fin_direct.status_code == 200
+    assert res_fin_direct.json()["phase"] == "finished"
+
+    # 10. Returning to lobby resets cleanly
+    client.post("/api/host/lobby", headers=headers)
+    assert client.get("/api/projector/state").json()["phase"] == "lobby"
+
+

@@ -187,6 +187,15 @@ label{font-size:14px;font-weight:700;color:var(--dim);display:block;margin-botto
     <button class="btn readybtn" id="b-ready">I'm ready</button>
     <div class="countline" id="lb-counts"></div>
   </section>
+
+  <!-- celebratory finished screen on mobile -->
+  <section id="s-finished" class="hidden" style="display:flex; flex-direction:column; gap:16px; text-align:center; align-items:center; padding:18px 10px;">
+    <div id="fin-mob-icon" style="font-size:64px; filter:drop-shadow(0 0 16px rgba(242,194,48,0.5));">🏆</div>
+    <div id="fin-mob-title" style="font-size:24px; font-weight:900; color:#F2C230; text-transform:uppercase; letter-spacing:0.02em;">Tournament Complete</div>
+    <div id="fin-mob-sub" style="font-size:16px; font-weight:700; color:var(--text); line-height:1.4;">Winners declared on the projector screen!</div>
+    <div id="fin-mob-score" style="font-size:14px; color:var(--dim); padding:8px 16px; background:var(--card2); border:1px solid var(--border); border-radius:12px; width:100%; max-width:320px; display:none;"></div>
+    <div style="font-size:13px; color:var(--dim); margin-top:8px;">Look at the projector screen for the full final standings!</div>
+  </section>
 </div>
 
 <!-- full-screen color stage: team screen, letters, solver -->
@@ -239,7 +248,7 @@ const PALETTE=["#FF3B30","#0A84FF","#2ECC71","#FFD60A","#AF52DE","#FF9500","#FF2
 const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));
 const err=(id,msg)=>{const e=$(id);e.textContent=msg||"";e.classList.toggle("show",!!msg);};
-const sections=["s-code","s-name","s-lobby"];
+const sections=["s-code","s-name","s-lobby","s-finished"];
 function showSection(id){sections.forEach(s=>$(s).classList.toggle("hidden",s!==id));$("stage").classList.remove("show");}
 function showStage(){sections.forEach(s=>$(s).classList.add("hidden"));$("stage").classList.add("show");}
 
@@ -473,6 +482,43 @@ function render(st){
   const isComp = st.game_mode === "competitive";
   const myTeamIdx = (st.you.color && st.you.team_number != null) ? (st.you.team_number - 1) : -1;
   const needsTeam = isComp && (myTeamIdx < 0);
+
+  if(st.phase === "finished"){
+    showSection("s-finished");
+    $("comp-answer-drawer").classList.add("hidden");
+    const wSum = st.winner_summary;
+    const champ = wSum && wSum.winners && wSum.winners[0];
+    const isWinner = champ && (champ.color_idx === myTeamIdx);
+
+    if(wSum && wSum.winners && wSum.winners.length > 0){
+      if(wSum.is_tie){
+        $("fin-mob-icon").textContent = "🤝";
+        $("fin-mob-title").textContent = "CO-CHAMPIONS TIE!";
+        $("fin-mob-sub").textContent = `Co-Champions tied with ${wSum.top_score} points!`;
+      } else if(isWinner){
+        $("fin-mob-icon").textContent = "🏆";
+        $("fin-mob-title").textContent = "YOU WON THE GAME!";
+        $("fin-mob-sub").textContent = `Congratulations! Your team (${champ.name}) won the tournament with ${champ.score} points!`;
+      } else {
+        $("fin-mob-icon").textContent = "🎉";
+        $("fin-mob-title").textContent = `${champ.name.toUpperCase()} WINS!`;
+        $("fin-mob-sub").textContent = `Team ${champ.name} won the tournament with ${champ.score} points!`;
+      }
+    } else {
+      $("fin-mob-icon").textContent = "🎉";
+      $("fin-mob-title").textContent = "GAME COMPLETE!";
+      $("fin-mob-sub").textContent = "All rounds have been played. Great teamwork!";
+    }
+
+    if(myTeamIdx >= 0 && wSum && wSum.leaderboard){
+      const myTeam = wSum.leaderboard.find(t => t.color_idx === myTeamIdx);
+      $("fin-mob-score").textContent = myTeam ? `Your team finished with ${myTeam.score} pts` : "";
+      $("fin-mob-score").style.display = myTeam ? "block" : "none";
+    } else {
+      $("fin-mob-score").style.display = "none";
+    }
+    return;
+  }
 
   if(st.phase==="lobby" || needsTeam){
     info=false;lastRound=null;
