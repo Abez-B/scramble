@@ -105,8 +105,8 @@ def hash_pin(pin: str) -> str:
 
 
 def _join_url(request: Request, room: dict) -> str:
-    base = os.getenv("BASE_URL") or str(request.base_url).rstrip("/")
-    return f"{base}/?c={room['join_code']}"
+    base = os.getenv("BASE_URL") or "https://scrambles.fly.dev"
+    return f"{base.rstrip('/')}/?c={room['join_code']}"
 
 
 # ─────────────────────────────────────── in-memory state (the hot path)
@@ -424,7 +424,7 @@ async def projector_state(request: Request):
         "exists": True,
         "session_id": room["session_id"],
         "join_code": room["join_code"],
-        "join_url": f"{request.base_url}?c={room['join_code']}",
+        "join_url": _join_url(request, room),
         "phase": room["phase"],
         "game_mode": room.get("game_mode", "classic"),
         "scores": room.get("scores", {}),
