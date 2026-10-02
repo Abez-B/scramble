@@ -632,26 +632,20 @@ function render(){
     $("footer-left").textContent = isComp ? "Any team member can type the answer to win the round!" : "Letters arrive on your phone when the host deals the round.";
 
     // Render team cards
-    const teams = {};
-    for(let i=0; i<state.team_count; i++){
-      teams[i] = [];
-    }
-    state.players.forEach(p => {
-      if(p.color_idx >= 0 && teams[p.color_idx]){
-        teams[p.color_idx].push(p.name);
-      }
-    });
-
     const scores = state.scores || {};
-    const scoreVals = Object.keys(teams).map(i => ({ idx: parseInt(i, 10), pts: scores[i] || 0 }));
+    const teamIndices = new Set();
+    (state.custom_teams || []).forEach(t => teamIndices.add(t.color_idx));
+    (state.players || []).forEach(p => { if (p.color_idx >= 0) teamIndices.add(p.color_idx); });
+    for(let i = 0; i < state.team_count; i++) teamIndices.add(i);
+
+    const scoreVals = Array.from(teamIndices).map(ci => ({ idx: ci, pts: scores[String(ci)] || 0 }));
     scoreVals.sort((a,b) => b.pts - a.pts);
     const rankMap = {};
     scoreVals.forEach((item, r) => { rankMap[item.idx] = r + 1; });
 
     const palette = state.palette || PALETTE;
     const customTeams = state.custom_teams || [];
-    const teamList = customTeams.length ? customTeams : Object.keys(teams).map(idxStr => {
-      const idx = parseInt(idxStr, 10);
+    const teamList = customTeams.length ? customTeams : Array.from(teamIndices).map(idx => {
       const c = palette[idx % palette.length];
       return { idx, name: c.name, color_idx: idx, hex: c.hex, fg: c.fg || "#ffffff" };
     });
@@ -659,7 +653,7 @@ function render(){
     const teamCardsHtml = teamList.map(t => {
       const idx = t.color_idx;
       const idxStr = String(idx);
-      const members = teams[idx] || [];
+      const members = (state.players || []).filter(p => p.color_idx === idx).map(p => p.name);
       const membersText = members.length > 0 ? members.map(esc).join(" · ") : "Waiting for players…";
       const fgColor = t.fg || "#ffffff";
       const pts = scores[idxStr] || 0;

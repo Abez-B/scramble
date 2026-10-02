@@ -183,6 +183,24 @@ def _require_host(pin: str | None, room: dict):
         raise HTTPException(401, "Wrong host PIN.")
 
 
+def _redeal_active_round_if_live(room: dict):
+    """Re-deal the current active round's pieces across current player rosters if the round is live."""
+    cur = room.get("current_round", -1)
+    answers = _mem.get("answers", [])
+    if room.get("phase") == "live" and 0 <= cur < len(answers):
+        snap = make_snapshot(
+            cur,
+            answers[cur],
+            _mem["players"],
+            room.get("edge_marks", True),
+            room.get("allow_flips", True),
+        )
+        _mem["rounds"][cur] = snap
+        _persist(store.save_round, room["session_id"], cur, snap, snap["made_at"])
+        _notify("REDEAL", round=cur)
+
+
+
 def _etag_response(request: Request, data: dict, extra_headers: dict | None = None):
     """Build a JSONResponse with ETag. Returns 304 if the client already has
     the current version."""
@@ -631,6 +649,7 @@ async def create_team(body: CreateTeamBody):
     room["team_count"] = max(room["team_count"], len(custom_teams))
     player["color_idx"] = new_idx
 
+    _redeal_active_round_if_live(room)
     _bump()
     _persist(store.set_custom_teams, custom_teams)
     _persist(store.set_team_count, room["team_count"])
@@ -656,6 +675,7 @@ async def select_team(body: TeamSelectBody):
     # Leaving team / unassigning
     if body.color_idx == -1:
         player["color_idx"] = -1
+        _redeal_active_round_if_live(room)
         _bump()
         _persist(store.set_color, room["session_id"], pid, -1)
         _notify("PLAYER_TEAM_CHANGED", pid=pid, color_idx=-1)
@@ -677,6 +697,7 @@ async def select_team(body: TeamSelectBody):
         raise HTTPException(400, f"Team is full (max {max_members} members).")
 
     player["color_idx"] = body.color_idx
+    _redeal_active_round_if_live(room)
     _bump()
     _persist(store.set_color, room["session_id"], pid, body.color_idx)
     _notify("PLAYER_TEAM_CHANGED", pid=pid, color_idx=body.color_idx)
@@ -901,14 +922,7 @@ async def set_teams(body: TeamsBody, x_host_pin: str | None = Header(default=Non
     room["team_count"] = body.team_count
     if room["phase"] == "live":
         _rebalance_teams(_mem["players"], body.team_count, room["session_id"])
-        
-        # Instantly re-deal the current round if one is active so the new teams get correct tiles
-        cur = room["current_round"]
-        if cur >= 0 and cur < len(_mem["answers"]):
-            snap = make_snapshot(cur, _mem["answers"][cur], _mem["players"],
-                                 room["edge_marks"], room["allow_flips"])
-            _mem["rounds"][cur] = snap
-            _persist(store.save_round, room["session_id"], cur, snap, snap["made_at"])
+        _redeal_active_round_if_live(room)
 
     _bump()
     _persist(store.set_team_count, body.team_count)

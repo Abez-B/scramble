@@ -243,6 +243,8 @@ def test_competitive_late_joiner_team_selection():
 
     sr_late_after = client.get("/api/state?pid=pid-late1").json()
     assert sr_late_after["you"]["team_name"] == "Hackers"
+    assert sr_late_after["round"]["in_round"] is True
+    assert sr_late_after["round"]["pieces"] is not None
 
     # Another late joiner arrives and creates a brand new team while game is LIVE
     client.post("/api/join", json={"code": join_code, "pid": "pid-late2", "name": "Late Creator"})
@@ -252,3 +254,73 @@ def test_competitive_late_joiner_team_selection():
 
     sr_late2 = client.get("/api/state?pid=pid-late2").json()
     assert sr_late2["you"]["team_name"] == "Night Owls"
+    assert sr_late2["round"]["in_round"] is True
+    assert len(sr_late2["round"]["pieces"]) > 0
+
+
+def test_competitive_switch_teams_mid_round_redeals():
+    client = TestClient(app)
+    pin = "1234"
+
+    # 1. Open room in competitive mode with a 6-letter word
+    r = client.post("/api/room", json={
+        "pin": pin,
+        "answers": ["PLANET"],
+        "game_mode": "competitive"
+    })
+    join_code = r.json()["join_code"]
+    headers = {"X-Host-Pin": pin}
+
+    # 2. Add 2 players to Team Alpha and 1 player to Team Beta
+    client.post("/api/join", json={"code": join_code, "pid": "p-alpha1", "name": "Alpha1"})
+    client.post("/api/join", json={"code": join_code, "pid": "p-alpha2", "name": "Alpha2"})
+    client.post("/api/join", json={"code": join_code, "pid": "p-beta1", "name": "Beta1"})
+
+    res_t0 = client.post("/api/team/create", json={"code": join_code, "pid": "p-alpha1", "name": "Alpha"})
+    t0_idx = res_t0.json()["color_idx"]
+    client.post("/api/team/select", json={"code": join_code, "pid": "p-alpha2", "color_idx": t0_idx})
+
+    res_t1 = client.post("/api/team/create", json={"code": join_code, "pid": "p-beta1", "name": "Beta"})
+    t1_idx = res_t1.json()["color_idx"]
+
+    # 3. Start live round
+    client.post("/api/host/assign", headers=headers)
+    client.post("/api/host/round", json={"action": "next"}, headers=headers)
+
+    s_a1 = client.get("/api/state?pid=p-alpha1").json()
+    s_a2 = client.get("/api/state?pid=p-alpha2").json()
+    s_b1 = client.get("/api/state?pid=p-beta1").json()
+
+    assert s_a1["round"]["in_round"] is True
+    assert s_a2["round"]["in_round"] is True
+    assert s_b1["round"]["in_round"] is True
+
+    # 4. Alpha2 switches from Team Alpha to Team Beta mid-round!
+    # First leave
+    res_leave = client.post("/api/team/select", json={"code": join_code, "pid": "p-alpha2", "color_idx": -1})
+    assert res_leave.status_code == 200
+
+    # While left, Alpha2 is not in round
+    s_a2_left = client.get("/api/state?pid=p-alpha2").json()
+    assert s_a2_left["you"]["color"] is None
+
+    # Alpha1 is now solo on Team Alpha and receives all letters (jumbled into pieces)
+    s_a1_solo = client.get("/api/state?pid=p-alpha1").json()
+    assert "".join(sorted("".join(s_a1_solo["round"]["pieces"]))) == "".join(sorted("PLANET"))
+
+    # Now Alpha2 joins Team Beta
+    res_join_beta = client.post("/api/team/select", json={"code": join_code, "pid": "p-alpha2", "color_idx": t1_idx})
+    assert res_join_beta.status_code == 200
+
+    s_a2_beta = client.get("/api/state?pid=p-alpha2").json()
+    s_b1_beta = client.get("/api/state?pid=p-beta1").json()
+
+    assert s_a2_beta["you"]["team_name"] == "Beta"
+    assert s_a2_beta["round"]["in_round"] is True
+    assert len(s_a2_beta["round"]["pieces"]) > 0
+
+    # Together, Beta1 and Alpha2 hold the pieces for "PLANET"
+    combined_beta = set(s_a2_beta["round"]["pieces"] + s_b1_beta["round"]["pieces"])
+    # All letters in PLANET covered
+    assert "".join(sorted("".join(combined_beta))) == "".join(sorted("PLANET"))
+
