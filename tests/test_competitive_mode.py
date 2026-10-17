@@ -15,8 +15,13 @@ def clean_db():
     _mem["rounds"] = {}
     _mem["kicked_pids"] = set()
     _mem["guess_cooldowns"] = {}
-    store.close_room()
     yield
+    _mem["room"] = None
+    _mem["players"] = []
+    _mem["answers"] = []
+    _mem["rounds"] = {}
+    _mem["kicked_pids"] = set()
+    _mem["guess_cooldowns"] = {}
     store.close_room()
 
 
@@ -109,37 +114,42 @@ def test_competitive_mode_lifecycle():
     res = client.post("/api/host/round", json={"action": "next"}, headers=headers)
     assert res.status_code == 200
 
-    # 6. Bob tries wrong answer
-    res = client.post("/api/round/submit", json={"code": join_code, "pid": "pid-bob", "guess": "JAVA"})
+    # 6. Bob buzzes in first for Binary Beasts
+    res = client.post("/api/round/buzz", json={"code": join_code, "pid": "pid-bob"})
     assert res.status_code == 200
-    assert res.json()["correct"] is False
-    assert res.json()["cooldown"] == 3.0
+    assert res.json()["buzz"]["team_name"] == "Binary Beasts"
+    assert res.json()["buzz"]["player_name"] == "Bob"
 
-    # Rapid re-submit within 3s triggers cooldown
-    res = client.post("/api/round/submit", json={"code": join_code, "pid": "pid-bob", "guess": "JAVA2"})
-    assert res.status_code == 200
-    assert "Slow down" in res.json()["message"]
+    # Alice tries to buzz while Bob's team buzz is pending -> 409 conflict
+    res_conflict = client.post("/api/round/buzz", json={"code": join_code, "pid": "pid-alice"})
+    assert res_conflict.status_code == 409
+    assert "buzzed in first" in res_conflict.json()["detail"]
 
-    # 7. Alice submits correct answer (with different casing/spacing tolerance)
-    res = client.post("/api/round/submit", json={"code": join_code, "pid": "pid-alice", "guess": "  python  "})
-    assert res.status_code == 200
-    assert res.json()["correct"] is True
-    winner = res.json()["winner"]
+    # Host inspects Bob's team's phones and finds an incomplete lineup -> dismisses buzz
+    res_dismiss = client.post("/api/host/buzz/dismiss", headers=headers)
+    assert res_dismiss.status_code == 200
+    assert client.get("/api/host/state", headers=headers).json()["round_buzz"] is None
+
+    # Now Alice buzzes in for Code Crusaders (properly assembled)
+    res_alice = client.post("/api/round/buzz", json={"code": join_code, "pid": "pid-alice"})
+    assert res_alice.status_code == 200
+    assert res_alice.json()["buzz"]["team_name"] == "Code Crusaders"
+
+    # Host verifies physical lineup and awards the point
+    res_award = client.post("/api/host/buzz/award", headers=headers)
+    assert res_award.status_code == 200
+    winner = res_award.json()["winner"]
     assert winner["team_idx"] == 0
     assert winner["team_name"] == "Code Crusaders"
     assert winner["player_name"] == "Alice"
-    assert res.json()["scores"]["0"] == 1
-
-    # 8. Late submission after round is won is rejected
-    res = client.post("/api/round/submit", json={"code": join_code, "pid": "pid-bob", "guess": "python"})
-    assert res.status_code == 200
-    assert res.json()["won"] is True
+    assert res_award.json()["scores"]["0"] == 1
 
     # Check projector state
     proj = client.get("/api/projector/state").json()
     assert proj["game_mode"] == "competitive"
     assert proj["scores"]["0"] == 1
     assert proj["round_winner"]["player_name"] == "Alice"
+    assert proj["round_buzz"] is None
 
     # 9. Host manual score adjustment
     res = client.post("/api/host/scores", json={"color_idx": 1, "delta": 2}, headers=headers)
@@ -159,8 +169,8 @@ def test_competitive_mode_lifecycle():
     assert res.status_code == 200
     assert res.json()["game_mode"] == "classic"
 
-    # In classic mode, submissions are rejected
-    res = client.post("/api/round/submit", json={"code": join_code, "pid": "pid-bob", "guess": "javascript"})
+    # In classic mode, buzzer is rejected
+    res = client.post("/api/round/buzz", json={"code": join_code, "pid": "pid-bob"})
     assert res.status_code == 400
 
     # 12. Switch back to competitive and test direct score set
@@ -354,21 +364,28 @@ def test_finish_game_celebratory_winner_declare():
     client.post("/api/host/assign", headers=headers)
     client.post("/api/host/round", json={"action": "next"}, headers=headers)
 
-    # Eagles win Round 0
-    res_sub1 = client.post("/api/round/submit", json={"code": join_code, "pid": "p-eagle1", "guess": "EARTH"})
-    assert res_sub1.status_code == 200
-    assert res_sub1.json()["correct"] is True
+    # Eagles buzz in and win Round 0
+    res_b1 = client.post("/api/round/buzz", json={"code": join_code, "pid": "p-eagle1"})
+    assert res_b1.status_code == 200
+    res_aw1 = client.post("/api/host/buzz/award", headers=headers)
+    assert res_aw1.status_code == 200
 
     # Deal Round 1 ("MARS")
     client.post("/api/host/round", json={"action": "next"}, headers=headers)
 
-    # Eagles win Round 1 as well -> Eagles 2, Hawks 0
-    res_sub2 = client.post("/api/round/submit", json={"code": join_code, "pid": "p-eagle2", "guess": "MARS"})
-    assert res_sub2.status_code == 200
-    assert res_sub2.json()["correct"] is True
+    # Eagles buzz in and win Round 1 as well -> Eagles 2, Hawks 0
+    res_b2 = client.post("/api/round/buzz", json={"code": join_code, "pid": "p-eagle2"})
+    assert res_b2.status_code == 200
+    res_aw2 = client.post("/api/host/buzz/award", headers=headers)
+    assert res_aw2.status_code == 200
 
-    # 4. Host hits next after Round 1 (last round) -> triggers finish game!
-    res_finish = client.post("/api/host/round", json={"action": "next"}, headers=headers)
+    # 4. Host hits next after Round 1 (last round) -> returns 409 No more answers!
+    res_next = client.post("/api/host/round", json={"action": "next"}, headers=headers)
+    assert res_next.status_code == 409
+    assert "No more answers" in res_next.json()["detail"]
+
+    # Host explicitly concludes the tournament
+    res_finish = client.post("/api/host/finish", headers=headers)
     assert res_finish.status_code == 200
     assert res_finish.json()["phase"] == "finished"
 
@@ -422,5 +439,124 @@ def test_finish_game_celebratory_winner_declare():
     # 10. Returning to lobby resets cleanly
     client.post("/api/host/lobby", headers=headers)
     assert client.get("/api/projector/state").json()["phase"] == "lobby"
+
+
+def test_scoped_redeal_does_not_affect_unrelated_teams():
+    """Verify that mid-round team joins/switches strictly scope re-dealing
+    to the affected team, leaving all other teams' phone pieces completely frozen."""
+    client = TestClient(app)
+    pin = "9999"
+
+    # Open competitive room with a 9-letter answer
+    r = client.post("/api/room", json={
+        "pin": pin,
+        "answers": ["ELEPHANTS"],
+        "game_mode": "competitive"
+    })
+    join_code = r.json()["join_code"]
+    headers = {"X-Host-Pin": pin}
+
+    # Setup Team A with 4 members
+    team_a_pids = ["p-a1", "p-a2", "p-a3", "p-a4"]
+    for pid in team_a_pids:
+        client.post("/api/join", json={"code": join_code, "pid": pid, "name": f"A-{pid}"})
+    r_ta = client.post("/api/team/create", json={"code": join_code, "pid": "p-a1", "name": "Team A"})
+    ta_idx = r_ta.json()["color_idx"]
+    for pid in team_a_pids[1:]:
+        client.post("/api/team/select", json={"code": join_code, "pid": pid, "color_idx": ta_idx})
+
+    # Setup Team B with 2 members
+    team_b_pids = ["p-b1", "p-b2"]
+    for pid in team_b_pids:
+        client.post("/api/join", json={"code": join_code, "pid": pid, "name": f"B-{pid}"})
+    r_tb = client.post("/api/team/create", json={"code": join_code, "pid": "p-b1", "name": "Team B"})
+    tb_idx = r_tb.json()["color_idx"]
+    client.post("/api/team/select", json={"code": join_code, "pid": "p-b2", "color_idx": tb_idx})
+
+    # Start live round
+    client.post("/api/host/assign", headers=headers)
+    client.post("/api/host/round", json={"action": "next"}, headers=headers)
+
+    # Record Team A's exact pieces on all 4 phones
+    team_a_initial_pieces = {}
+    for pid in team_a_pids:
+        st = client.get(f"/api/state?pid={pid}").json()
+        assert st["round"]["in_round"] is True
+        team_a_initial_pieces[pid] = st["round"]["pieces"]
+
+    # Now a new player joins Team B mid-round
+    client.post("/api/join", json={"code": join_code, "pid": "p-b3", "name": "B-Late"})
+    res_b3_join = client.post("/api/team/select", json={"code": join_code, "pid": "p-b3", "color_idx": tb_idx})
+    assert res_b3_join.status_code == 200
+
+    # Verify Team B now has 3 members with pieces
+    st_b3 = client.get("/api/state?pid=p-b3").json()
+    assert st_b3["round"]["in_round"] is True
+
+    # CRITICAL GUARANTEE: Verify Team A's pieces DID NOT SHIFT AT ALL!
+    for pid in team_a_pids:
+        st = client.get(f"/api/state?pid={pid}").json()
+        assert st["round"]["pieces"] == team_a_initial_pieces[pid], f"Team A's pieces shifted for {pid}!"
+
+    # Now someone creates Team C mid-round
+    client.post("/api/join", json={"code": join_code, "pid": "p-c1", "name": "C-Creator"})
+    res_c_create = client.post("/api/team/create", json={"code": join_code, "pid": "p-c1", "name": "Team C"})
+    assert res_c_create.status_code == 200
+
+    # Team A's pieces STILL MUST NOT SHIFT
+    for pid in team_a_pids:
+        st = client.get(f"/api/state?pid={pid}").json()
+        assert st["round"]["pieces"] == team_a_initial_pieces[pid], f"Team A's pieces shifted when Team C was created!"
+
+
+def test_classic_mode_last_round_next_and_no_winner_screen():
+    """Verify Classic mode maintains original Scramble semantics:
+    - Next on the last round raises 409 'No more answers — add a few more below.'
+    - No tie/winner celebration screen is shown on projector or mobile.
+    """
+    client = TestClient(app)
+    pin = "1111"
+
+    # Open Classic room
+    r = client.post("/api/room", json={
+        "pin": pin,
+        "answers": ["FIRST", "SECOND"],
+        "game_mode": "classic"
+    })
+    join_code = r.json()["join_code"]
+    headers = {"X-Host-Pin": pin}
+
+    # Add players (pid min length is 4)
+    r_j1 = client.post("/api/join", json={"code": join_code, "pid": "pid-p1", "name": "Player 1"})
+    assert r_j1.status_code == 200
+    r_j2 = client.post("/api/join", json={"code": join_code, "pid": "pid-p2", "name": "Player 2"})
+    assert r_j2.status_code == 200
+
+    # Host goes live
+    r_assign = client.post("/api/host/assign", headers=headers)
+    assert r_assign.status_code == 200
+    # Round 0 ("FIRST")
+    r0 = client.post("/api/host/round", json={"action": "next"}, headers=headers)
+    assert r0.status_code == 200
+    # Round 1 ("SECOND" - last answer)
+    r1 = client.post("/api/host/round", json={"action": "next"}, headers=headers)
+    assert r1.status_code == 200
+
+    # Pressing Next on the last answer MUST raise 409
+    r_last = client.post("/api/host/round", json={"action": "next"}, headers=headers)
+    assert r_last.status_code == 409
+    assert "No more answers — add a few more below." in r_last.json()["detail"]
+
+    # Verify Projector does NOT show finished or tie screen
+    proj = client.get("/api/projector/state").json()
+    assert proj["phase"] == "live"
+    assert proj["winner_summary"] is None
+    assert proj["game_mode"] == "classic"
+
+    # Verify Mobile state does NOT show winner summary
+    mob = client.get("/api/state?pid=pid-p1").json()
+    assert mob["phase"] == "live"
+    assert mob["winner_summary"] is None
+
 
 

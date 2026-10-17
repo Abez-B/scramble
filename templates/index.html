@@ -226,20 +226,23 @@ label{font-size:14px;font-weight:700;color:var(--dim);display:block;margin-botto
   </div>
 </div>
 
-<!-- Buzzer Answer Drawer (Competitive Mode) -->
+<!-- Lineup Buzzer (Competitive Mode) -->
 <div id="comp-answer-drawer" class="comp-drawer hidden">
   <div id="comp-winner-banner" class="comp-winner-banner hidden">
     <span id="comp-winner-msg">🏆 Round won!</span>
   </div>
-  <div style="display:flex; align-items:center; justify-content:space-between; width:100%; max-width:440px; padding:0 4px;">
+  <div id="comp-buzz-alert" class="comp-winner-banner hidden" style="background:rgba(242,194,48,0.2); border-color:#f2c230; color:#f2c230;">
+    <span id="comp-buzz-alert-msg">🚨 Team buzzed in!</span>
+  </div>
+  <div style="display:flex; align-items:center; justify-content:space-between; width:100%; max-width:440px; padding:0 4px; margin-bottom:6px;">
     <div id="comp-drawer-team-pill" style="font-size:12px; font-weight:700; color:rgba(255,255,255,0.9); background:rgba(0,0,0,0.55); padding:3px 12px; border-radius:999px; backdrop-filter:blur(6px);"></div>
     <button id="b-drawer-switch-team" type="button" class="btn-drawer-switch" onclick="leaveTeamAndSwitch(event)">Switch team</button>
   </div>
-  <form id="comp-answer-form" style="display:flex; gap:8px; width:100%;" onsubmit="submitCompAnswer(event)">
-    <input id="comp-answer-input" class="field" style="border-radius:14px; background:rgba(21, 27, 35, 0.92); backdrop-filter:blur(8px); border-color:rgba(255,255,255,0.25); font-size:16px;" placeholder="Type team answer..." autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false">
-    <button id="comp-answer-submit" type="submit" class="btn" style="width:auto; padding:0 22px; border-radius:14px; white-space:nowrap; background:#fff; color:#0d1117;">Buzz</button>
-  </form>
-  <div id="comp-cooldown-msg" class="comp-cooldown hidden"></div>
+  <div style="width:100%; max-width:440px;">
+    <button id="b-team-buzz" type="button" class="btn" style="width:100%; height:52px; font-size:16px; font-weight:800; letter-spacing:0.04em; border-radius:14px; background:#f2c230; color:#0d1117; box-shadow:0 6px 20px rgba(242,194,48,0.4); display:flex; align-items:center; justify-content:center; gap:8px;" onclick="buzzInLineup()">
+      🚨 BUZZ! WE'RE LINED UP!
+    </button>
+  </div>
 </div>
 
 
@@ -541,11 +544,9 @@ function render(st){
       } else {
         $("lb-copy").textContent="Form or join your team above, then tap ready when you're set!";
       }
-      const palette = st.palette || PALETTE;
       const myTeamIdx = (st.you.color && st.you.team_number != null) ? (st.you.team_number - 1) : -1;
       const customTeams = st.custom_teams || [];
       const maxMembers = st.max_team_members || 4;
-      const allPlayers = st.players || [];
 
       // Render My Team Banner if assigned
       const myTeamBanner = $("my-team-banner");
@@ -578,16 +579,17 @@ function render(st){
         listHtml = `<div style="font-size:13px; color:var(--dim); padding:16px 10px; background:var(--card2); border:1px dashed var(--border); border-radius:12px; text-align:center;">No teams created yet.<br><span style="font-weight:600; color:var(--text);">Tap '+ Create Team'</span> to start the first team!</div>`;
       } else {
         customTeams.forEach(t => {
-          const members = allPlayers.filter(p => p.color_idx === t.color_idx);
+          const members = t.member_names || [];
+          const count = t.member_count != null ? t.member_count : members.length;
           const isMine = (myTeamIdx === t.color_idx);
-          const isFull = members.length >= maxMembers;
-          const memberNames = members.map(m => m.name).join(", ");
+          const isFull = count >= maxMembers;
+          const memberNames = members.join(", ");
           listHtml += `
             <div class="team-card ${isMine ? 'mine' : ''}" style="border-left:4px solid ${t.hex};">
               <div style="min-width:0; flex-grow:1;">
                 <div style="display:flex; align-items:center; gap:8px;">
                   <span style="font-weight:700; font-size:15px; color:${t.hex}; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${esc(t.name)}</span>
-                  <span style="font-size:12px; color:var(--dim); font-weight:600; flex-shrink:0;">(${members.length}/${maxMembers})</span>
+                  <span style="font-size:12px; color:var(--dim); font-weight:600; flex-shrink:0;">(${count}/${maxMembers})</span>
                 </div>
                 <div style="font-size:12px; color:var(--dim); margin-top:3px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">
                   ${esc(memberNames) || "Waiting for players…"}
@@ -641,31 +643,60 @@ function render(st){
     }
   }
 
-  // Buzzer Drawer Handling (active for any team member during competitive round, even if late joiner)
+  // Buzzer Drawer Handling (active for any team member during competitive round)
   const drawer = $("comp-answer-drawer");
   if(isComp && st.round && (st.you.color != null)){
     drawer.classList.remove("hidden");
     if ($("comp-drawer-team-pill")) {
-      $("comp-drawer-team-pill").textContent = teamDisplayName ? `Buzzer for ${teamDisplayName}` : "Team Buzzer";
+      $("comp-drawer-team-pill").textContent = teamDisplayName ? `Team ${teamDisplayName}` : "Team Buzzer";
     }
-    $("comp-answer-input").placeholder = teamDisplayName ? `Type answer for ${teamDisplayName}...` : "Type team answer...";
+
+    const myTeamIdx = (st.you.team_number != null) ? (st.you.team_number - 1) : -1;
+    const bBtn = $("b-team-buzz");
+    const bAlert = $("comp-buzz-alert");
+    const bAlertMsg = $("comp-buzz-alert-msg");
+    const wBanner = $("comp-winner-banner");
 
     if(st.round_winner){
       const w = st.round_winner;
-      const myTeamIdx = (st.you.team_number != null) ? (st.you.team_number - 1) : -1;
       const isMyTeam = (myTeamIdx === w.team_idx);
-      $("comp-winner-banner").classList.remove("hidden");
+      wBanner.classList.remove("hidden");
+      bAlert.classList.add("hidden");
       if(isMyTeam){
         $("comp-winner-msg").textContent = `🎉 YOUR TEAM (${teamDisplayName.toUpperCase()}) WON ROUND ${w.round + 1}! ("${w.answer}")`;
       } else {
         $("comp-winner-msg").textContent = `🏆 Won by ${w.team_name} (${w.player_name})`;
       }
-      $("comp-answer-input").disabled = true;
-      $("comp-answer-submit").disabled = true;
+      bBtn.disabled = true;
+      bBtn.style.opacity = "0.5";
+      bBtn.textContent = "Round Finished";
+    } else if(st.round_buzz){
+      wBanner.classList.add("hidden");
+      bAlert.classList.remove("hidden");
+      const isMyTeam = (myTeamIdx === st.round_buzz.color_idx);
+      if(isMyTeam){
+        bAlert.style.borderColor = "#2ECC71";
+        bAlert.style.color = "#2ECC71";
+        bAlert.style.background = "rgba(46,204,113,0.2)";
+        bAlertMsg.textContent = "🚨 BUZZED IN! Keep phones lined up on table for host!";
+        bBtn.disabled = true;
+        bBtn.style.opacity = "0.8";
+        bBtn.textContent = "✓ Buzzed In! Waiting for Host...";
+      } else {
+        bAlert.style.borderColor = "#f2c230";
+        bAlert.style.color = "#f2c230";
+        bAlert.style.background = "rgba(242,194,48,0.2)";
+        bAlertMsg.textContent = `⚠️ Team ${st.round_buzz.team_name} buzzed first! Host inspecting...`;
+        bBtn.disabled = true;
+        bBtn.style.opacity = "0.4";
+        bBtn.textContent = `Locked · Team ${st.round_buzz.team_name} Buzzed`;
+      }
     } else {
-      $("comp-winner-banner").classList.add("hidden");
-      $("comp-answer-input").disabled = false;
-      $("comp-answer-submit").disabled = false;
+      wBanner.classList.add("hidden");
+      bAlert.classList.add("hidden");
+      bBtn.disabled = false;
+      bBtn.style.opacity = "1";
+      bBtn.textContent = "🚨 BUZZ! WE'RE LINED UP!";
     }
   } else {
     drawer.classList.add("hidden");
@@ -913,67 +944,25 @@ window.leaveTeamAndSwitch = async (e) => {
   await chooseTeam(-1);
 };
 
-let answerCooldownUntil = 0;
-window.submitCompAnswer = async (e) => {
-  if (e) e.preventDefault();
-  const inp = $("comp-answer-input");
-  const guess = (inp.value || "").trim();
-  if (!guess) return;
-
-  const now = Date.now();
-  if (now < answerCooldownUntil) {
-    return;
-  }
-
-  const subBtn = $("comp-answer-submit");
-  subBtn.disabled = true;
-
+window.buzzInLineup = async () => {
+  const btn = $("b-team-buzz");
+  if (!btn || btn.disabled) return;
   try {
-    const res = await fetch("/api/round/submit", {
+    const res = await fetch("/api/round/buzz", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ code, pid, guess })
+      body: JSON.stringify({ code, pid })
     });
     const d = await res.json();
-    if (!res.ok) throw new Error(d.detail || "Submission failed.");
-
-    if (d.correct) {
-      inp.value = "";
-      $("comp-cooldown-msg").classList.add("hidden");
-      refreshFromHTTP();
-    } else if (d.cooldown) {
-      inp.classList.add("shake");
-      setTimeout(() => inp.classList.remove("shake"), 400);
-      answerCooldownUntil = Date.now() + (d.cooldown * 1000);
-      showCooldownTimer(d.cooldown);
-    } else if (d.won) {
-      refreshFromHTTP();
+    if (!res.ok) {
+      alert(d.detail || "Could not buzz in.");
+      return;
     }
+    refreshFromHTTP();
   } catch(err) {
-    alert(err.message);
-  } finally {
-    subBtn.disabled = false;
+    alert("Network error: " + err.message);
   }
 };
-
-let _cdTimer = null;
-function showCooldownTimer(seconds) {
-  if (_cdTimer) clearInterval(_cdTimer);
-  const cMsg = $("comp-cooldown-msg");
-  cMsg.classList.remove("hidden");
-  let left = Math.ceil(seconds);
-  cMsg.textContent = `Incorrect! Try again in ${left}s`;
-  _cdTimer = setInterval(() => {
-    left--;
-    if (left <= 0) {
-      clearInterval(_cdTimer);
-      _cdTimer = null;
-      cMsg.classList.add("hidden");
-    } else {
-      cMsg.textContent = `Incorrect! Try again in ${left}s`;
-    }
-  }, 1000);
-}
 
 function boot(){
   $("code").value=code;$("name").value=name;

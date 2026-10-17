@@ -661,6 +661,15 @@ body {
 
 </div>
 
+<!-- Buzz Alert Banner (Competitive Mode) -->
+<div id="proj-buzz-banner" class="hidden" style="position:fixed; top:32px; left:50%; transform:translateX(-50%); z-index:90; background:rgba(13,16,21,0.96); border:2.5px solid #F2C230; box-shadow:0 12px 48px rgba(0,0,0,0.85); padding:16px 36px; border-radius:999px; display:flex; align-items:center; gap:16px;">
+  <span style="font-size:32px;">🚨</span>
+  <div>
+    <div id="proj-buzz-title" style="font-size:22px; font-weight:800; color:#F2C230; text-transform:uppercase; letter-spacing:0.06em;">TEAM BUZZED IN!</div>
+    <div id="proj-buzz-sub" style="font-size:14px; color:rgba(255,255,255,0.85); font-weight:600;">Host inspecting physical phone line-up...</div>
+  </div>
+</div>
+
 <!-- Winner Celebration Overlay (Competitive Mode) -->
 <div id="winner-modal" class="winner-modal hidden">
   <div class="winner-content" id="winner-box">
@@ -717,7 +726,7 @@ function render(){
 
   $("s-empty").classList.add("hidden");
   const isLobby = state.phase === "lobby";
-  const isFinished = state.phase === "finished";
+  const isFinished = state.game_mode === "competitive" && state.phase === "finished" && state.winner_summary != null;
   $("s-lobby").classList.toggle("hidden", isLobby === false || isFinished);
   $("s-teams").classList.toggle("hidden", isLobby || isFinished);
   $("s-finished").classList.toggle("hidden", !isFinished);
@@ -825,6 +834,21 @@ function render(){
       `;
     }).join("");
     $("teamsgrid").innerHTML = teamCardsHtml;
+    }
+  }
+
+  // Buzz Alert Banner
+  const buzzBanner = $("proj-buzz-banner");
+  if(buzzBanner){
+    if(isComp && !isFinished && state.round_buzz && !state.round_winner){
+      const b = state.round_buzz;
+      $("proj-buzz-title").textContent = `TEAM ${b.team_name.toUpperCase()} BUZZED IN!`;
+      $("proj-buzz-title").style.color = b.hex || "#F2C230";
+      $("proj-buzz-banner").style.borderColor = b.hex || "#F2C230";
+      $("proj-buzz-sub").textContent = `${esc(b.player_name)} buzzed! Host inspecting physical phone lineup...`;
+      buzzBanner.classList.remove("hidden");
+    } else {
+      buzzBanner.classList.add("hidden");
     }
   }
 

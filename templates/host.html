@@ -1643,7 +1643,7 @@ function renderAll(){
     } else {
       $("b-next").classList.remove("hidden");
       $("b-redeal").classList.remove("hidden");
-      if($("b-finish-game")) $("b-finish-game").classList.remove("hidden");
+      if($("b-finish-game")) $("b-finish-game").classList.toggle("hidden", hs.game_mode !== "competitive");
       $("b-back").textContent = "← Back";
       if(cur < 0){
         $("stage-desc").textContent = "Team screen";
@@ -1808,10 +1808,6 @@ $("b-assign").onclick=async()=>{
 async function roundAction(action){
   err("e-round");
   try{
-    if(action === "next" && hs && hs.current_round + 1 >= hs.answers.length){
-      if(!confirm("All rounds completed! Finish the game and declare the winner on the projector screen?")) return;
-      action = "finish";
-    }
     await api("/api/host/round",{method:"POST",body:JSON.stringify({action})});
     await refresh();
   }catch(e){
@@ -1878,16 +1874,28 @@ function renderCompetitiveArena(){
   const bDesc = $("comp-buzzer-desc");
   const bIcon = $("comp-buzzer-icon");
 
+  const buzz = hs.round_buzz;
+
   if(winner){
     bIcon.textContent = "🏆";
     bTitle.textContent = `Round ${winner.round + 1} Solved by Team ${winner.team_name}!`;
-    bDesc.innerHTML = `Winner: <b>${esc(winner.player_name)}</b> · Solved word: <b>"${esc(winner.answer)}"</b>. Advance to next round when ready.`;
+    bDesc.innerHTML = `Winner: <b>${esc(winner.player_name)}</b>. Host awarded +1 point! Advance to next round when ready.`;
     $("comp-buzzer-status").style.borderColor = "#43c26a";
     $("comp-buzzer-status").style.background = "rgba(67, 194, 106, 0.15)";
+  } else if(buzz){
+    bIcon.textContent = "🚨";
+    bTitle.textContent = `Team "${buzz.team_name}" Buzzed In!`;
+    bDesc.innerHTML = `Player: <b>${esc(buzz.player_name)}</b>. Verify their physical phone lineup on the table:<br>
+      <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+        <button type="button" onclick="hostAwardBuzz()" style="padding:6px 14px; border-radius:8px; background:#2ECC71; color:#06341B; font-weight:800; border:none; cursor:pointer;">✓ Lineup Verified: Award +1 Pt</button>
+        <button type="button" onclick="hostDismissBuzz()" style="padding:6px 14px; border-radius:8px; background:rgba(255,255,255,0.1); color:#fff; font-weight:600; border:1px solid rgba(255,255,255,0.25); cursor:pointer;">✗ Incomplete Lineup / Dismiss</button>
+      </div>`;
+    $("comp-buzzer-status").style.borderColor = "#f2c230";
+    $("comp-buzzer-status").style.background = "rgba(242, 194, 48, 0.15)";
   } else if(live && cur >= 0){
     bIcon.textContent = "🔔";
     bTitle.textContent = `Round ${cur + 1} Active — Buzzers Open`;
-    bDesc.textContent = `Players can type the answer into their phone drawer. First correct submission wins the round!`;
+    bDesc.textContent = `Teams physically line up their phones on the table. The first team to line up hits BUZZ! on their phone.`;
     $("comp-buzzer-status").style.borderColor = "var(--border2)";
     $("comp-buzzer-status").style.background = "rgba(0,0,0,0.35)";
   } else {
@@ -1965,6 +1973,24 @@ window.adjustScore = async(color_idx, delta)=>{
     }
   } catch(e){
     alert("Could not update score: " + e.message);
+  }
+};
+
+window.hostAwardBuzz = async () => {
+  try {
+    await api("/api/host/buzz/award", {method: "POST", body: "{}"});
+    await refresh();
+  } catch(e) {
+    alert("Could not award point: " + e.message);
+  }
+};
+
+window.hostDismissBuzz = async () => {
+  try {
+    await api("/api/host/buzz/dismiss", {method: "POST", body: "{}"});
+    await refresh();
+  } catch(e) {
+    alert("Could not dismiss buzz: " + e.message);
   }
 };
 
