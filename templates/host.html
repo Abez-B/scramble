@@ -1888,7 +1888,7 @@ function renderCompetitiveArena(){
     bDesc.innerHTML = `Player: <b>${esc(buzz.player_name)}</b>. Verify their physical phone lineup on the table:<br>
       <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
         <button type="button" onclick="hostAwardBuzz()" style="padding:6px 14px; border-radius:8px; background:#2ECC71; color:#06341B; font-weight:800; border:none; cursor:pointer;">✓ Lineup Verified: Award +1 Pt</button>
-        <button type="button" onclick="hostDismissBuzz()" style="padding:6px 14px; border-radius:8px; background:rgba(255,255,255,0.1); color:#fff; font-weight:600; border:1px solid rgba(255,255,255,0.25); cursor:pointer;">✗ Incomplete Lineup / Dismiss</button>
+        <button type="button" onclick="hostDismissBuzz()" style="padding:6px 14px; border-radius:8px; background:rgba(255,255,255,0.1); color:#fff; font-weight:600; border:1px solid rgba(255,255,255,0.25); cursor:pointer;">✗ Incomplete Lineup / Dismiss (5s Lockout)</button>
       </div>`;
     $("comp-buzzer-status").style.borderColor = "#f2c230";
     $("comp-buzzer-status").style.background = "rgba(242, 194, 48, 0.15)";

@@ -130,7 +130,12 @@ def test_competitive_mode_lifecycle():
     assert res_dismiss.status_code == 200
     assert client.get("/api/host/state", headers=headers).json()["round_buzz"] is None
 
-    # Now Alice buzzes in for Code Crusaders (properly assembled)
+    # Bob's team is locked out with a false buzz penalty (429)
+    res_bob_locked = client.post("/api/round/buzz", json={"code": join_code, "pid": "pid-bob"})
+    assert res_bob_locked.status_code == 429
+    assert "False buzz penalty" in res_bob_locked.json()["detail"]
+
+    # Meanwhile Alice's team (not penalized) can buzz in immediately
     res_alice = client.post("/api/round/buzz", json={"code": join_code, "pid": "pid-alice"})
     assert res_alice.status_code == 200
     assert res_alice.json()["buzz"]["team_name"] == "Code Crusaders"

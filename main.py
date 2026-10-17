@@ -130,6 +130,7 @@ _mem = {
     "version": 0,       # monotonic; bumped on every mutation, used for ETags
     "kicked_pids": set(), # pids that have been removed by the host
     "guess_cooldowns": {}, # {pid: last_guess_timestamp} for buzzer rate limit
+    "buzz_cooldowns": {},  # {color_idx: penalty_expiry_timestamp} for false-buzz lockout
 }
 
 
@@ -521,6 +522,7 @@ async def open_room(body: OpenRoomBody, request: Request):
     _mem["rounds"] = {}
     _mem["kicked_pids"] = set()
     _mem["guess_cooldowns"] = {}
+    _mem["buzz_cooldowns"] = {}
     answers = [clean_answer(a) for a in body.answers]
     answers = [a for a in answers if a][:MAX_ANSWERS]
     _mem["answers"] = answers
@@ -820,6 +822,12 @@ async def round_buzz(body: RoundBuzzBody):
         raise HTTPException(400, "You must be on a team to buzz in.")
 
     ci = player["color_idx"]
+    now = time.time()
+    penalty_until = _mem.get("buzz_cooldowns", {}).get(ci, 0)
+    if now < penalty_until:
+        rem = max(1, int(round(penalty_until - now)))
+        raise HTTPException(429, f"False buzz penalty! Your team is locked out for {rem}s.")
+
     cur_buzz = room.get("round_buzz")
     if cur_buzz:
         if cur_buzz.get("color_idx") == ci:
@@ -883,9 +891,12 @@ async def host_buzz_award(x_host_pin: str | None = Header(default=None)):
 
 @app.post("/api/host/buzz/dismiss")
 async def host_buzz_dismiss(x_host_pin: str | None = Header(default=None)):
-    """Host dismisses a false or incomplete line-up buzz, reopening buzzers."""
+    """Host dismisses a false or incomplete line-up buzz, reopening buzzers with a 5s lockout for the false buzzer."""
     room = _require_room()
     _require_host(x_host_pin, room)
+    buzz = room.get("round_buzz")
+    if buzz and buzz.get("color_idx") is not None:
+        _mem.setdefault("buzz_cooldowns", {})[buzz["color_idx"]] = time.time() + 5.0
     room["round_buzz"] = None
     _bump()
     _notify("ROUND_BUZZ_DISMISSED")
@@ -1148,6 +1159,7 @@ async def round_nav(body: RoundBody, x_host_pin: str | None = Header(default=Non
     # Reset round winner and buzz on any navigation
     room["round_winner"] = None
     room["round_buzz"] = None
+    _mem["buzz_cooldowns"] = {}
     _persist(store.set_round_winner, None)
 
     if body.action in ("finish", "end"):
@@ -1230,6 +1242,7 @@ async def back_to_lobby(x_host_pin: str | None = Header(default=None)):
     room["scores"] = {}
     room["custom_teams"] = []
     _mem["guess_cooldowns"] = {}
+    _mem["buzz_cooldowns"] = {}
     for p in _mem["players"]:
         p["ready"] = False
         p["color_idx"] = -1
